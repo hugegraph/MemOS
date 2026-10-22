@@ -1,0 +1,2 @@
+# Keep checked-out text identical to Git blobs, including the immutable frontend.
+* text=auto eol=lf

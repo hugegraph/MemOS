@@ -1,0 +1,12 @@
+**
+!openapi.json
+!server/
+!server/live/
+!server/live/**
+!deploy/
+!deploy/dashboard-bff/
+!deploy/dashboard-bff/Dockerfile
+!deploy/dashboard-bff/package.json
+!deploy/dashboard-bff/package-lock.json
+server/live/**/*.test.mjs
+**/.env*

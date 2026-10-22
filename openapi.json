@@ -444,7 +444,7 @@
           }
         },
         "responses": {
-          "200": { "$ref": "#/components/responses/KnowledgeBase" }
+          "200": { "$ref": "#/components/responses/KnowledgeBaseDetail" }
         }
       }
     },
@@ -530,7 +530,7 @@
           }
         },
         "responses": {
-          "200": { "$ref": "#/components/responses/Ok" }
+          "200": { "$ref": "#/components/responses/KnowledgeBaseAssociation" }
         }
       }
     },
@@ -555,7 +555,7 @@
           }
         },
         "responses": {
-          "200": { "$ref": "#/components/responses/Ok" }
+          "200": { "$ref": "#/components/responses/KnowledgeBaseAssociation" }
         }
       }
     },
@@ -949,6 +949,8 @@
         "type": "object",
         "required": ["id", "createTime", "eventType", "status"],
         "properties": {
+          "cubeId": { "type": ["string", "null"], "description": "审计写入时认证身份的cube；旧日志缺失时为null，不从当前项目推断。" },
+          "attribution": { "type": "string", "enum": ["cube", "unknown"] },
           "id": { "type": "string" },
           "createTime": { "type": "string" },
           "eventType": { "$ref": "#/components/schemas/EventType" },
@@ -962,6 +964,8 @@
         "type": "object",
         "required": ["id", "createTime", "eventType", "status"],
         "properties": {
+          "cubeId": { "type": ["string", "null"] },
+          "attribution": { "type": "string", "enum": ["cube", "unknown"] },
           "id": { "type": "string" },
           "createTime": { "type": "string" },
           "eventType": { "$ref": "#/components/schemas/EventType" },
@@ -1055,11 +1059,39 @@
           "content": { "type": "string" }
         }
       },
+      "AuditScope": {
+        "type": "object",
+        "description": "向后兼容的归属说明。项目查询只含tenant+cube匹配记录；缺cube的历史记录仅在配置租户的全局查询中可见，未被删除。",
+        "properties": {
+          "unattributedKeyRecords": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "用量查询扩展：日期及工作区范围内缺少可信密钥ID的记录数，按密钥过滤前计算。这些旧记录不分摊给任何密钥，不过滤密钥时仍按原口径计数。撤销密钥不删除其已归属历史。"
+          },
+          "mode": { "type": "string", "enum": ["cube", "configured-tenants"] },
+          "unattributedRecords": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "当前日期范围内、事件/正文筛选前，相关租户缺少cube归属的记录数。项目查询不把这些记录计入total或dailyStats。"
+          }
+        }
+      },
       "UsageDailyStat": {
         "type": "object",
         "required": ["date"],
         "properties": {
           "date": { "type": "string", "format": "date" },
+          "totalCalls": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "向后兼容扩展：当前工作区和UTC日期内全部有效审计事件数，包含失败调用，不仅限于addMessage/searchMemory。"
+          },
+          "callsByEvent": {
+            "type": "object",
+            "description": "向后兼容扩展：按规范化EventType分组的调用次数；无调用日为空对象，其值之和等于totalCalls。旧前端可能不读取此字段。",
+            "propertyNames": { "$ref": "#/components/schemas/EventType" },
+            "additionalProperties": { "type": "integer", "minimum": 0 }
+          },
           "addMessage": { "$ref": "#/components/schemas/UsageCalls" },
           "searchMemory": { "$ref": "#/components/schemas/UsageCalls" },
           "chat": { "$ref": "#/components/schemas/UsageTokens" },
@@ -1288,6 +1320,7 @@
                       "type": "object",
                       "required": ["logs", "total"],
                       "properties": {
+                        "auditScope": { "$ref": "#/components/schemas/AuditScope" },
                         "logs": { "type": "array", "items": { "$ref": "#/components/schemas/RequestLog" } },
                         "total": { "type": "integer" }
                       }
@@ -1406,13 +1439,47 @@
         }
       },
       "KnowledgeBase": {
-        "description": "成功，返回知识库对象",
+        "description": "完整实现返回知识库对象；Issue #1 允许未实现的写操作返回 null，不代表实际创建或更新知识库。",
         "content": {
           "application/json": {
             "schema": {
               "allOf": [
                 { "$ref": "#/components/schemas/Envelope" },
-                { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/KnowledgeBase" } } }
+                {
+                  "type": "object",
+                  "properties": { "data": { "anyOf": [{ "$ref": "#/components/schemas/KnowledgeBase" }, { "type": "null" }] } }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "KnowledgeBaseDetail": {
+        "description": "完整实现返回知识库对象；Issue #1 允许未实现的详情返回空对象。非空不完整对象仍不合法。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/Envelope" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "data": { "anyOf": [{ "$ref": "#/components/schemas/KnowledgeBase" }, { "type": "object", "maxProperties": 0 }] }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "KnowledgeBaseAssociation": {
+        "description": "完整实现返回操作对象；Issue #1 允许未实现的关联/移除操作返回 null，不表示关联已生效。只限知识库，不放宽其他 Ok 响应。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/Envelope" },
+                { "type": "object", "properties": { "data": { "type": ["object", "null"], "additionalProperties": true } } }
               ]
             }
           }
@@ -1562,6 +1629,7 @@
                       "type": "object",
                       "required": ["dailyStats"],
                       "properties": {
+                        "auditScope": { "$ref": "#/components/schemas/AuditScope" },
                         "dailyStats": {
                           "type": "array",
                           "items": { "$ref": "#/components/schemas/UsageDailyStat" }
