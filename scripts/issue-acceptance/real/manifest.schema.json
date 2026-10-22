@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Explicit live acceptance configuration (no implicit service targets)",
+  "type": "object",
+  "required": ["bff", "upstream"],
+  "additionalProperties": false,
+  "properties": {
+    "bff": { "$ref": "#/$defs/service" },
+    "upstream": { "$ref": "#/$defs/service" },
+    "maxCalls": { "type": "integer", "minimum": 1, "maximum": 500 },
+    "timeoutMs": { "type": "integer", "minimum": 100, "maximum": 30000 },
+    "maxDurationMs": { "type": "integer", "minimum": 1000, "maximum": 600000 },
+    "workspaces": { "type": "array", "items": { "$ref": "#/$defs/workspace" } },
+    "emptyWorkspace": { "$ref": "#/$defs/workspace" },
+    "frozenFixture": {
+      "type": "object",
+      "required": ["workspace", "ids", "filters"],
+      "additionalProperties": false,
+      "properties": {
+        "workspace": { "$ref": "#/$defs/workspace" },
+        "ids": { "type": "array", "minItems": 3, "maxItems": 500, "uniqueItems": true, "items": { "type": "string" } },
+        "filters": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": false,
+            "properties": {
+              "externalUserId": { "type": "string" },
+              "subjectType": { "enum": ["user", "agent", "public"] },
+              "memSearchContent": { "type": "string" },
+              "startTime": { "type": "string", "format": "date-time" },
+              "endTime": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      }
+    },
+    "mutation": {
+      "type": "object",
+      "required": ["enabled", "workspace", "runPrefix", "write"],
+      "additionalProperties": false,
+      "description": "Also requires --allow-mutation; pre-provisioned workspace must be entirely empty. Runner does not create workspaces. Confirm deployed write schema and exact IDs pointer before enabling.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "workspace": { "$ref": "#/$defs/workspace" },
+        "runPrefix": { "type": "string", "pattern": "^[a-zA-Z0-9_-]{8,64}$" },
+        "write": {
+          "type": "object",
+          "required": ["path", "body", "idsPointer"],
+          "additionalProperties": false,
+          "properties": {
+            "path": { "const": "/product/add" },
+            "body": {
+              "type": "object",
+              "required": ["writable_cube_ids", "user_id", "async_mode"],
+              "description": "Synchronous /product/add body; must contain marker and exactly the dedicated cube. Every inserted memory must preserve marker.",
+              "properties": {
+                "writable_cube_ids": { "const": ["{{cubeId}}"] },
+                "async_mode": { "const": "sync" },
+                "user_id": { "const": "{{userId}}" }
+              }
+            },
+            "idsPointer": {
+              "type": "string",
+              "pattern": "^/",
+              "description": "JSON Pointer to insertion response array, not a task ID or later query result."
+            },
+            "idsField": {
+              "type": "string",
+              "description": "For object arrays such as /data, use memory_id. Omit when response contains string IDs."
+            }
+          }
+        }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "required": ["files", "projectTenants", "startDate", "endDate"],
+      "additionalProperties": false,
+      "description": "Read-only mounted/local files covering the same frozen UTC window as the BFF audit directory. No SSH copying. Legacy missing ms/input/output fields block field acceptance.",
+      "properties": {
+        "files": { "type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true, "items": { "type": "string" } },
+        "projectTenants": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } }
+        },
+        "startDate": { "type": "string", "format": "date" },
+        "endDate": { "type": "string", "format": "date" }
+      }
+    }
+  },
+  "$defs": {
+    "service": {
+      "type": "object",
+      "required": ["url"],
+      "additionalProperties": false,
+      "properties": {
+        "url": { "type": "string", "format": "uri", "pattern": "^https?://" },
+        "bearerEnv": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Environment variable NAME, never the token value. Omit for services without bearer auth."
+        }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "required": ["projectId", "cubeId", "userId"],
+      "additionalProperties": false,
+      "properties": {
+        "projectId": { "type": "string", "minLength": 1 },
+        "cubeId": { "type": "string", "minLength": 1 },
+        "userId": { "type": "string", "minLength": 1 },
+        "dedicated": { "type": "boolean", "default": false }
+      }
+    }
+  }
+}

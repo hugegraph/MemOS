@@ -1,0 +1,46 @@
+name: memos-dashboard-bff
+services:
+  bff:
+    build:
+      context: ../..
+      dockerfile: deploy/dashboard-bff/Dockerfile
+    image: memos-dashboard-bff:local
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    environment:
+      MEMOS_API_BASE_URL: ${MEMOS_API_BASE_URL:-http://memos:8000}
+      MEMOS_SERVICE_URL: ${MEMOS_SERVICE_URL:-http://127.0.0.1:8003}
+      MEMOS_CUBE_OWNER: ${MEMOS_CUBE_OWNER:-}
+      DASHBOARD_PROMPT_TOKEN: ${DASHBOARD_PROMPT_TOKEN:-}
+      DASHBOARD_MEMORY_TOKEN: ${DASHBOARD_MEMORY_TOKEN:-}
+      DASHBOARD_GATEWAY_ENV: ${DASHBOARD_GATEWAY_ENV:-}
+      DASHBOARD_DATA_DIR: /data
+      MEMORY_CALL_LOG_DIR: /audit
+      DASHBOARD_ORIGINS: ${DASHBOARD_ORIGINS:-http://127.0.0.1:5274,http://localhost:5274,http://127.0.0.1:5275,http://localhost:5275}
+      DASHBOARD_WORKSPACES: ${DASHBOARD_WORKSPACES:?Set explicit project/user/cube/tenant mapping}
+    volumes:
+      - ${DASHBOARD_AUDIT_DIR:?Set existing audit directory}:/audit:ro
+      - ${DASHBOARD_STATE_DIR:?Set isolated BFF state directory}:/data
+    ports:
+      - 127.0.0.1:${DASHBOARD_PUBLISHED_PORT:-5281}:5281
+    networks: [memos]
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:5281/api/meta').then(async r=>{const j=await r.json();if(!r.ok||j.data?.health?.status!=='healthy')process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+networks:
+  memos:
+    external: true
+    name: ${MEMOS_DOCKER_NETWORK:?Set the existing MemOS Docker network}

@@ -31,17 +31,18 @@ function fail(res: http.ServerResponse, code: number, message: string, status = 
 }
 
 function readBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
-    // ⚠️ 按字节攒、最后一次性按 UTF-8 解码：`raw += chunk` 会让每个分片各自解码，
-    //    汉字跨分片时会变成 U+FFFD（同样的写法在 BFF 里已经造成过一次真实的静默损坏）
+  return new Promise((resolve, reject) => {
+    // Decode once: a UTF-8 character may span multiple network chunks.
     const chunks: Buffer[] = []
     req.on('data', (c: Buffer) => chunks.push(c))
     req.on('end', () => {
       try {
         const raw = Buffer.concat(chunks).toString('utf8')
-        resolve(raw ? JSON.parse(raw) : {})
+        const value = raw ? JSON.parse(raw) : {}
+        if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('object required')
+        resolve(value)
       } catch {
-        resolve({})
+        reject(new HttpError(40000, '请求体必须为合法 JSON 对象'))
       }
     })
   })
@@ -66,6 +67,20 @@ function paginate<T>(rows: T[], pageNum: number, pageSize: number) {
 const byProject = (rows: Row[], projectId: string) => (projectId ? rows.filter((r) => !r.projectId || r.projectId === projectId) : rows)
 
 const descBy = (field: string) => (a: Row, b: Row) => (String(a[field]) < String(b[field]) ? 1 : -1)
+
+function filterTime(rows: Row[], body: Record<string, unknown>) {
+  if (!body.startTime && !body.endTime) return rows
+  const low = body.startTime ? Date.parse(String(body.startTime)) : -Infinity
+  const high = body.endTime ? Date.parse(String(body.endTime)) : Infinity
+  if (Number.isNaN(low) || Number.isNaN(high) || low > high) throw new HttpError(40000, '时间范围无效')
+  return rows.filter((r) => {
+    const time = Date.parse(String(r.createTime))
+    return time >= low && time <= high
+  })
+}
+
+// The contract's opaque id is an object; templateId remains the stable string identifier.
+const publicTemplate = (row: Row) => ({ ...row, id: {} })
 
 /* -------------------------------------------------------------- 路由 */
 
@@ -94,6 +109,7 @@ const ROUTES: Record<string, Handler> = {
   },
 
   'POST /api/dashboard/project/create': ({ body }) => {
+    if (typeof body.name !== 'string') throw new HttpError(40000, '项目名称必须为字符串')
     const name = str(body.name).trim()
     if (!name) throw new HttpError(40000, '项目名称不能为空')
     if (db.projects.some((p) => p.name === name)) throw new HttpError(40000, '已存在同名项目')
@@ -171,7 +187,7 @@ const ROUTES: Record<string, Handler> = {
   /* -------------------------------------------------------- 调用日志 */
 
   'POST /api/dashboard/log/list': ({ body }) => {
-    let rows = byProject(db.logs, str(body.projectId))
+    let rows = filterTime(byProject(db.logs, str(body.projectId)), body)
     const q = str(body.query).toLowerCase()
     if (q) rows = rows.filter((r) => String(r.traceId).toLowerCase().includes(q) || String(r.userId).toLowerCase().includes(q))
     if (body.eventType) rows = rows.filter((r) => r.eventType === body.eventType)
@@ -195,7 +211,7 @@ const ROUTES: Record<string, Handler> = {
   /* ------------------------------------------------------------ 记忆 */
 
   'POST /api/dashboard/project/memory/list': ({ body }) => {
-    let rows = byProject(db.memories, str(body.projectId))
+    let rows = filterTime(byProject(db.memories, str(body.projectId)), body)
     if (body.memoryDetailType) rows = rows.filter((r) => r.memoryDetailType === body.memoryDetailType)
     if (body.knowledgeBaseId) rows = rows.filter((r) => r.knowledgeBaseId === body.knowledgeBaseId)
     if (body.externalUserId) rows = rows.filter((r) => r.externalUserId === body.externalUserId)
@@ -321,7 +337,7 @@ const ROUTES: Record<string, Handler> = {
     return publicMemory(row)
   },
 
-  /* -------------------------------------------------------- 画像模板 */
+  /* -------------------------------------------------------- 属性树模板 */
 
   'POST /api/dashboard/profileTemplate/list': ({ body }) => {
     const rows = byProject(db.templates, str(body.projectId))
@@ -329,13 +345,13 @@ const ROUTES: Record<string, Handler> = {
     const pageSize = num(body.pageSize, 10)
     const { items, total } = paginate(rows, pageNum, pageSize)
     // 列表响应在这个接口叫 list，且带 pages
-    return { list: items, total, current: pageNum, size: pageSize, pages: Math.max(1, Math.ceil(total / pageSize)) }
+    return { list: items.map(publicTemplate), total, current: pageNum, size: pageSize, pages: Math.max(1, Math.ceil(total / pageSize)) }
   },
 
   'GET /api/dashboard/profileTemplate/detail': ({ query }) => {
     const row = db.templates.find((t) => t.templateId === query.get('templateId'))
     if (!row) throw new HttpError(40001, '模板不存在')
-    return row
+    return publicTemplate(row)
   },
 
   'POST /api/dashboard/profileTemplate/create': ({ body }) => {
@@ -458,6 +474,11 @@ const ROUTES: Record<string, Handler> = {
     allowedKnowledgebaseCount: 10,
   }),
 
+  'POST /api/user/subscription/details': () => ({
+    cycles: [{ id: 'cycle_current', cycleStartTime: '2026-10-01', cycleEndTime: '2026-10-31' }],
+    currentCycle: { id: 'cycle_current' },
+  }),
+
   /* -------------------------------------------------------------- 模型 */
 
   'GET /api/dashboard/models': () => ({
@@ -496,19 +517,10 @@ const ROUTES: Record<string, Handler> = {
     const typeCount = new Map<string, number>()
     for (const n of nodes) typeCount.set(n.memoryType, (typeCount.get(n.memoryType) ?? 0) + 1)
     const types = [...typeCount.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count)
-
     return {
       nodes,
       links,
-      stats: {
-        nodes: nodes.length,
-        links: links.length,
-        sessions: 4,
-        clusters: 4,
-        orphans: 0,
-        truncated: false,
-        types,
-      },
+      stats: { nodes: nodes.length, links: links.length, sessions: 4, clusters: 4, orphans: 0, truncated: false, types },
     }
   },
 
@@ -598,7 +610,20 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'OPTIONS') return json(res, 204, null)
 
-  const body = await readBody(req)
+  let body: Record<string, unknown>
+  try {
+    body = await readBody(req)
+    for (const key of ['pageNum', 'pageSize'])
+      if (body[key] !== undefined && (typeof body[key] !== 'number' || !Number.isInteger(body[key]) || Number(body[key]) < 1))
+        throw new HttpError(40000, `${key}必须为正整数`)
+    if (
+      body.memoryDetailType !== undefined &&
+      !['text_mem', 'pref_mem', 'event_mem', 'profile_mem', 'skill_mem', 'tool_mem'].includes(String(body.memoryDetailType))
+    )
+      throw new HttpError(40000, '未知记忆类型')
+  } catch (error) {
+    return fail(res, 40000, error instanceof Error ? error.message : '请求参数无效', 400)
+  }
 
   for (const [key, handler] of Object.entries(ROUTES)) {
     const params = match(key, method, url.pathname)

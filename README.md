@@ -4,7 +4,21 @@ MemOS 记忆服务的 Web 控制台：接入说明、接口密钥、调用日志
 模型清单、自定义抽取、用量监控。
 
 前端是 Vite + React 19；仓库自带一个独立的 mock 后端（`server/mock/`），只用于本地开发。
-真实后端需要实现的接口见 `openapi.json`（OpenAPI 3.1，37 条路径）。
+接口定义见 `openapi.json`（OpenAPI 3.1，37 条路径），真实接入方式见下节。
+
+## 连接真实MemOS服务
+
+本分支新增独立的 `server/live/` BFF，与 `server/mock/` 并存。前端保持上游
+`481a291` 的原始内容，通过 `VITE_API_BASE` 连接BFF；并非在原生MemOS中新增全部Dashboard路由。
+
+- [本地启动、配置与安全边界](docs/LIVE-BACKEND.md)
+- [架构、数据映射及兼容性](docs/ARCHITECTURE.md)
+- [Docker部署与必要上游扩展](deploy/dashboard-bff/README.md)
+- [测试命令与验收边界](docs/testing.md)
+- [新增依赖与许可证范围](docs/DEPENDENCIES.md)
+
+按ID软删除、工作区Prompt和网关可信审计/密钥热加载需要明确安装相应扩展。
+它们不是“上游零改动”，也不替代原生MCP已有的删除语义。
 
 ## 快速开始
 
