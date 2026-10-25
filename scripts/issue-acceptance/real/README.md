@@ -38,7 +38,7 @@ Configure these variables; none are inferred from a developer workstation:
 | `ISSUE_CHROME` | Installed Chromium/Chrome/Edge executable |
 | `ISSUE_HEADFUL` | `1` for visible native-input validation |
 
-Prepare fresh dedicated workspaces using `deploy/dashboard-bff/verify-workspaces.mjs` and its
+Prepare fresh dedicated workspaces using `deploy/dashboard-bff/verify-workspaces.ts` and its
 documented environment configuration; read its `prepare`/`--allow-write` safeguards first.
 
 Create an empty `.data/acceptance` directory and set `WORKSPACE_VERIFY_MANIFEST` to a new file
@@ -47,7 +47,7 @@ within it. Set `WORKSPACE_VERIFY_BFF`, `WORKSPACE_VERIFY_UPSTREAM`, `WORKSPACE_V
 deployment and its protected control identity. Then execute:
 
 ```bash
-node deploy/dashboard-bff/verify-workspaces.mjs prepare --allow-write
+node deploy/dashboard-bff/verify-workspaces.ts prepare --allow-write
 ```
 
 The resulting `batch3-...` ledger must have `state=prepared`, a protected original selection,
@@ -56,7 +56,7 @@ project ID and native cube ID must match for this driver. Do not adapt old fixtu
 their status fields to pretend they are fresh.
 
 Set `ISSUE_WORKSPACE_MANIFEST` to that ledger and `ISSUE_NATIVE_SDK=ssh-docker`, then run
-`node scripts/issue-acceptance/real/prepare-native-types.mjs --allow-write`. These four typed SDK
+`node scripts/issue-acceptance/real/prepare-native-types.ts --allow-write`. These four typed SDK
 records establish read mapping, not automatic producer coverage. Build the frontend before running:
 
 ```bash

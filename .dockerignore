@@ -8,5 +8,6 @@
 !deploy/dashboard-bff/Dockerfile
 !deploy/dashboard-bff/package.json
 !deploy/dashboard-bff/package-lock.json
-server/live/**/*.test.mjs
+server/live/**/*.test.ts
+server/live/test-support.ts
 **/.env*

@@ -3,9 +3,10 @@ import hmac
 import os
 from fastapi import APIRouter, Body, Depends, Header, HTTPException
 from .soft_delete import delete, ScopeError, RequestError
+from .models import catalog, CatalogUnavailable
 
 
-def install(app, graph):
+def install(app, graph, components=None):
     if os.getenv('DASHBOARD_MEMORY_ENABLED') != '1':
         return
     token = os.getenv('DASHBOARD_MEMORY_TOKEN') or os.getenv('DASHBOARD_PROMPT_TOKEN', '')
@@ -15,6 +16,14 @@ def install(app, graph):
         if not hmac.compare_digest(x_dashboard_prompt_token, token):
             raise HTTPException(403, 'Memory management forbidden')
     router = APIRouter(prefix='/product/dashboard-memory', dependencies=[Depends(authorize)])
+    @router.get('/models')
+    def models():
+        try:
+            return {'code': 200, 'data': catalog(components), 'message': 'success'}
+        except CatalogUnavailable:
+            raise HTTPException(501, 'Runtime model inventory unavailable for this native deployment') from None
+        except Exception:
+            raise HTTPException(503, 'Runtime model inventory could not be read') from None
     @router.post('/soft-delete')
     def soft_delete(body: dict = Body(...)):
         if graph.__class__.__name__ != 'Neo4jCommunityGraphDB' or graph.vec_db.__class__.__name__ != 'QdrantVecDB':

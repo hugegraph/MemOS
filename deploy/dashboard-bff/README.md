@@ -10,6 +10,11 @@ SSH relays, model-account repairs and one-off machine deployment scripts are not
 
 ## BFF image and state
 
+The pinned Node 22 image supports native TypeScript execution (22.18+ required).
+The entrypoint is `server/live/server.ts`; no transpiler/loader or new runtime dependency
+is installed. Run `pnpm typecheck`/`pnpm verify` before building: Node strips types but does
+not check them. Shared-contract imports are type-only and erased before module resolution.
+
 Build from the repository root:
 
 ```bash

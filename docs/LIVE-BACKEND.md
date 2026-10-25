@@ -6,7 +6,10 @@ customized; configure its API origin before starting Vite or building it.
 
 ## Local setup
 
-Use Node 22.18+ (Node 24 is used in CI) and pnpm. Install with `pnpm install --frozen-lockfile`.
+Use Node 22.18+ (CI is configured for Node 24) and pnpm. Install with `pnpm install --frozen-lockfile`.
+The BFF and its unit/integration tests use TypeScript and type-only shared contracts.
+Like the original mock, Node runs the `.ts` source directly; run `pnpm typecheck` separately
+to enforce strict static checks. This uses only erasable TS syntax, without a new runtime loader.
 Start a compatible MemOS deployment first. Copy `.env.example` to `.env.live`, then set:
 
 - `MEMOS_API_BASE_URL`: the private MemOS REST origin; the referenced deployment listens on 8000.
@@ -56,3 +59,13 @@ Install the [deployment extensions](../deploy/dashboard-bff/README.md) for selec
 trusted cube/key attribution, key hot reload and optional workspace Prompts. Native preference
 production additionally depends on native configuration and a working extraction model; successful
 storage alone does not prove successful semantic extraction.
+## Additive runtime model inventory
+
+`GET /api/dashboard/models` is required by the newer frozen frontend and has a supplementary
+contract in `server/live/models.openapi.json`; the root37-operation document is unchanged.
+It reads initialized MemOS instances through the token-protected native memory extension's
+read-only `/product/dashboard-memory/models` route. Rebuild both the BFF and memory overlay.
+Only whitelisted model/role/source/class/dimension fields leave MemOS, never provider credentials
+or endpoints. Disabled chat is empty; inventory does not assert inference health or enable a producer.
+This remains an independent BFF plus limited native extensions, not native MemOS implementing
+every Dashboard endpoint or an assertion that upstream is unchanged.

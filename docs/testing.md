@@ -2,11 +2,19 @@
 
 ## Local deterministic checks
 
+Use Node 22.18+ (CI is configured for Node 24). The BFF and its colocated tests are
+TypeScript, executed with Node's native type stripping like the upstream mock. Execution
+does not typecheck: `pnpm typecheck` checks both the existing TS projects and the explicit
+strict `tsconfig.live.json`, including BFF tests, and `tsconfig.tools.json` for all Node
+acceptance, browser and deployment scripts. Both enforce erasable syntax; no loader or
+JavaScript fallback is added. The original frontend configuration and Python extensions
+remain unchanged. Scripts sent to Node through stdin use `--input-type=module-typescript`.
+
 ```bash
 pnpm install --frozen-lockfile
 pnpm verify
-node scripts/issue-acceptance/verify-frontend-unchanged.mjs
-node --test server/live/*.test.mjs scripts/mock-api.test.mjs scripts/acceptance.test.mjs scripts/issue-acceptance/isolated/*.test.mjs scripts/issue-acceptance/contract/*.test.mjs scripts/issue-acceptance/real/*.test.mjs
+node scripts/issue-acceptance/verify-frontend-unchanged.ts
+node --test server/live/*.test.ts scripts/mock-api.test.ts scripts/acceptance.test.ts scripts/issue-acceptance/isolated/*.test.ts scripts/issue-acceptance/contract/*.test.ts scripts/issue-acceptance/real/*.test.ts
 npx --yes @redocly/cli@2.67.1 lint openapi.json
 ```
 
@@ -47,3 +55,21 @@ manual memory/workspace checklist was reported passed by the operator; that does
 log, key or fault scenarios that were not part of that checklist. Machine-specific reports, credentials,
 PIDs and raw audit files stay outside the public tree. The full planned gate can remain BLOCKED for
 known unimplemented frontend controls even when selected backend/page suites pass.
+# Runtime model endpoint and current upstream browser checks
+
+The frozen root OpenAPI document still defines 37 operations (including 11 permitted placeholders).
+The live-only additive model endpoint has its own contract in `server/live/models.openapi.json` and
+regressions in `server/live/models.test.ts`. It requires the upgraded private native memory extension;
+do not serve static model names merely to make the original models page stop returning404.
+
+The browser runner now checks the481a291 skeleton/localized empty/error states, project readiness,
+badge-plus-name picker and icon actions. Repeated workspace selection may use an independently observed
+successful response for that exact workspace/view; exact native IDs/content and DOM are still checked.
+`UI-MODELS-CONTENT` exercises memory/chat tabs, names/roles, and actual model-name clipboard readback.
+For real verification, `ISSUE_MODELS_ORACLE` can point to a credential-free native inventory JSON
+`{ "records": [...] }` captured independently from the BFF.
+
+`ISSUE_WAIVE_LIVE_BADGE=1` is an **explicit opt-in for the missing label only**, requiring prior approval.
+The case is recorded `WAIVED`, not `PASS`; live metadata and absence of sample-data fallback must still
+succeed. Other frontend omissions remain `BLOCKED`; missing routes and upstream errors remain failures.
+Original TODO placeholders are not converted to PASS by these tests or by historical acceptance reports.

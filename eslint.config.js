@@ -31,8 +31,7 @@ export default tseslint.config(
 
   // 验证脚本跑在 node 上；page.evaluate 的回调又跑在浏览器里，两套全局都要给
   {
-    files: ['scripts/**/*.mjs', 'server/live/**/*.mjs', 'deploy/dashboard-bff/**/*.mjs'],
-    extends: [js.configs.recommended],
+    files: ['scripts/**/*.ts', 'deploy/dashboard-bff/**/*.ts'],
     languageOptions: { ecmaVersion: 2023, sourceType: 'module', globals: { ...globals.node, ...globals.browser } },
   },
 )

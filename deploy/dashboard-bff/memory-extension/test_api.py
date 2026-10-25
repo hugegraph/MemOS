@@ -26,6 +26,12 @@ class ApiTests(unittest.TestCase):
         body = {**self.body, 'memory_ids': ['one', 'absent']}
         self.assertEqual(self.client.post('/product/dashboard-memory/soft-delete', json=body, headers=self.headers).status_code, 404)
         self.assertEqual(self.graph.nodes['one']['status'], 'activated')
+    def test_models_auth_and_missing_runtime_fail_closed(self):
+        for headers in ({}, {'X-Dashboard-Prompt-Token': 'bad'}):
+            self.assertEqual(self.client.get('/product/dashboard-memory/models', headers=headers).status_code, 403)
+        reply = self.client.get('/product/dashboard-memory/models', headers=self.headers)
+        self.assertEqual(reply.status_code, 501)
+        self.assertNotIn(self.token, reply.text)
     def test_explicit_success_and_sync_failure_semantics(self):
         self.graph.vec_db.fail = True
         self.assertEqual(self.client.post('/product/dashboard-memory/soft-delete', json=self.body, headers=self.headers).status_code, 503)

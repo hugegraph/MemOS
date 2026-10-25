@@ -6,4 +6,4 @@ COPY openapi.json ./
 COPY server/live ./server/live
 ENV NODE_ENV=production DASHBOARD_HOST=0.0.0.0 DASHBOARD_PORT=5281
 EXPOSE 5281
-CMD ["node", "server/live/server.mjs"]
+CMD ["node", "server/live/server.ts"]

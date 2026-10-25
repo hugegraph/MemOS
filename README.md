@@ -4,7 +4,8 @@ MemOS 记忆服务的 Web 控制台：接入说明、接口密钥、调用日志
 模型清单、自定义抽取、用量监控。
 
 前端是 Vite + React 19；仓库自带一个独立的 mock 后端（`server/mock/`），只用于本地开发。
-接口定义见 `openapi.json`（OpenAPI 3.1，37 条路径），真实接入方式见下节。
+原有接口定义见 `openapi.json`（OpenAPI 3.1，37 条路径）；live 模型接口的补充契约见
+`server/live/models.openapi.json`。真实接入方式见下节。
 
 ## 连接真实MemOS服务
 
@@ -27,7 +28,7 @@ pnpm install
 pnpm dev:all    # 同时起 mock 后端(5280) 与前端(5274)
 ```
 
-打开 <http://localhost:5274/cn/apikeys>。需要 Node 20+ 与 pnpm。
+打开 <http://localhost:5274/cn/apikeys>。需要 Node 22.18+ 与 pnpm（原生执行TS）。
 
 其他命令：
 
@@ -50,7 +51,7 @@ pnpm verify     # typecheck + lint + format:check + build
 | 调用日志 | `/cn/requests` | 分页 + 关键词搜索 + 事件类型筛选，点行看请求/响应详情 |
 | 记忆列表 | `/cn/memoryList` | 6 个记忆类型标签 + 分页 + 搜索 + 批量删除 |
 | 记忆图谱 | `/cn/memoryGraph` | 实体与关系的力导向图，支持缩放、拖拽与节点详情 |
-| 模型列表 | `/cn/models` | 后端返回的模型清单，支持搜索与复制 |
+| 模型列表 | `/cn/models` | MemOS 运行实例的模型清单，支持页签切换与复制 |
 | 自定义抽取 | `/cn/customExtraction` | Prompt 配置与快速调试两个标签 |
 | 用量监控 | `/cn/usage` | 按天聚合的调用量与 token，图表 + 明细 |
 | 接口文档 | `/cn/docs` | 服务地址、MCP 接入配置 |
@@ -96,7 +97,8 @@ openapi.json    接口定义
 
 ## 接口定义
 
-接口的权威定义是仓库根目录的 `openapi.json`（OpenAPI 3.1，37 条路径）；前端侧的路径、
+原有 37 条接口的定义是仓库根目录的 `openapi.json`（OpenAPI 3.1）；新增 live 模型接口见
+`server/live/models.openapi.json`，需一起升级 BFF 和原生 memory 扩展。前端侧的路径、
 请求体与返回类型在 `src/lib/api.ts`。
 
 几条容易踩的约定：
