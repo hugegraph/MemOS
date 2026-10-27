@@ -17,6 +17,8 @@
     "format:check": "prettier --check .",
     "verify": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm build",
     "mock": "node --watch server/mock/server.ts",
+    "backend": "python -m server.backend",
+    "backend:test": "python -m pytest server/backend/tests -q",
     "dev:all": "concurrently -n mock,web -c cyan,green \"pnpm mock\" \"pnpm dev\""
   },
   "dependencies": {

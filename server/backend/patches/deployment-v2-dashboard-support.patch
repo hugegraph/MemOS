@@ -1,0 +1,3638 @@
+diff --git a/deploy/mcp-gateway/.gitignore b/deploy/mcp-gateway/.gitignore
+index aea65a4..b59b7c3 100644
+--- a/deploy/mcp-gateway/.gitignore
++++ b/deploy/mcp-gateway/.gitignore
+@@ -3,3 +3,8 @@ tenants.conf
+ 
+ __pycache__/
+ **/__pycache__/
++
++# Publication coordination and crash-left credential temporary files
++tenants.conf.lock
++tenants.conf.pending
++tenants.conf.*.tmp
+diff --git a/deploy/mcp-gateway/README.md b/deploy/mcp-gateway/README.md
+index 8cc92b4..c5579e0 100644
+--- a/deploy/mcp-gateway/README.md
++++ b/deploy/mcp-gateway/README.md
+@@ -99,6 +99,7 @@ python3 memos_gateway.py --transport http --host 0.0.0.0 --port 8003
+ | 变量 | 默认 | 说明 |
+ |---|---|---|
+ | `MEMOS_TENANTS` | 空（必填） | token → user_id 映射，`tok-a:alice,tok-b:bob` 或 JSON 两种写法皆可 |
++| `MEMOS_TENANTS_FILE` | 仓库旁 `tenants.conf` | dashboard 合成下发的租户清单文件（形状 = `MEMOS_TENANTS` 的 JSON 写法）；置空字符串则不读文件 |
+ | `MEMOS_API_BASE_URL` | `http://localhost:8000` | 后端 MemOS 服务地址 |
+ | `MEMORY_CALL_LOG_DIR` | `/var/log/memos-gateway` | 调用日志落盘目录 |
+ | `MEMORY_SERVICE_NAME` | `MemoryService` | 对客户端展示的服务名 |
+@@ -124,6 +125,18 @@ memos-zzzzzzzz:demo-agent-zhang  ← 不同 user_id = 各自独立
+ 
+ 改完 `MEMOS_TENANTS` 必须重启进程：环境变量不会热更新。
+ 
++#### `tenants.conf`（dashboard 管理的接口密钥清单）
++
++dashboard 的「接口密钥」功能以**项目即身份**的方式自动维护这份文件
++（`{"token": {"user_id": 项目, "cube_id": 项目}}`，与 `MEMOS_TENANTS` 的 JSON 写法同形）：
++
++- 网关启动时把 env 与文件**合并**：两处来源并存，同一个 token 在两处且身份一致 → 去重；
++  同一个 token 身份不一致 → **拒绝启动**（错误信息带 `MEMOS_TENANTS` 与 `tenants.conf` 双来源点名，token 以掩码呈现）。
++- 文件缺席不算错误（当作空清单）；坏 JSON 才是。
++- 文件在仓库 `.gitignore` 里（token 语义不入库）。
++- dashboard 是该文件的**单向权威**：dashboard 重启会按其库内 active 密钥重写整份文件，
++  手工加进文件里的 token 会被拭除；手工管理的 token 请走 `MEMOS_TENANTS`。
++
+ ### 改网关代码
+ 
+ 改 `gateway/` 下对应模块（入口仍是 `memos_gateway.py`），重启进程即生效。
+@@ -198,6 +211,48 @@ calls-YYYYMMDD.jsonl
+ | `gateway/mcp_api/http.py` | `/` 落地页、`/health` |
+ | `gateway/identity.py` | token → Caller |
+ | `test_gateway_contract.py` | 工具名 / 签名 / docstring / 对外文案锁 |
++| `test_gateway_tenants_file.py` | tenants.conf 读取与 env 合并（不依赖 fastmcp） |
+ | `test_gateway_tools.py` | 工具 payload 与失败语义（不连后端） |
+ | `test_gateway_audit.py` | 审计截断 / JSONL fsync |
+ | `prompt_regression_test.py` | 工具描述的模型行为回归 |
++
++
++### Dashboard credential publication (Task14 repair, 2026-10-27)
++
++Dashboard and gateway coordinate through the same `tenants.conf.lock` first-byte advisory lock
++(Windows msvcrt / POSIX flock). The shared configuration directory must support this coordination
++file. Startup readers wait for publication to finish; live authentication uses a nonblocking lock.
++A `tenants.conf.pending` marker means a transaction
++or reconciliation has not been confirmed: gateway startup refuses the file instead of accepting
++possibly orphaned credentials. Dashboard startup or a subsequent successful mutation reconciles
++from committed SQLite state. A process crash releases the OS lock; the pending marker remains
++until reconciliation. This is a publication/compensation protocol, not a cross-filesystem database
++transaction or an assurance about power-loss durability.
++
++Parser errors for both environment and file mappings never include the original credential.
++Unchanged legacy credentials continue to work, including an omitted/null cube defaulting to user.
++File-backed credentials reload automatically before each authenticated request. Changes to
++MEMOS_TENANTS environment variables still require a process restart.
++
++### Automatic credential reload
++
++The verifier checks the file identity, size, nanosecond modification/change times and pending
++marker on every authentication request. An unchanged publication is not reparsed. Changes are
++read under the shared publication lock and swapped as a complete in-memory snapshot; disk work
++runs off the async event loop. No watcher process, management endpoint or new dependency is needed.
++
++- Dashboard key creation works on the next request after its successful publication; revocation
++  rejects subsequent requests, including requests made by already-connected MCP clients.
++- A rename does not change the credential publication or interrupt its authorization.
++- A missing, unreadable, malformed, conflicting or pending file temporarily disables file-backed
++  credentials instead of retaining potentially revoked keys. Environment-backed identities remain
++  available. A later confirmed publication automatically recovers without a restart.
++- An empty file stays authenticated: it does not silently turn off authentication. Environment
++  identities are independent; removing a duplicate file entry does not revoke its environment copy.
++- Requests already authorized may finish; reload does not cancel their side effects. Unchanged
++  public health/landing endpoints do not trigger a reload and reflect the latest auth snapshot.
++- Deploying this code requires one initial gateway restart. Afterwards dashboard key publication
++  needs no gateway restart. All workers detect the shared file independently on their next request.
++
++Regression: `python -m pytest test_gateway_live_reload.py test_gateway_tenants_file.py
++test_gateway_contract.py test_gateway_tools.py -q` (from this directory).
+diff --git a/deploy/mcp-gateway/gateway/app.py b/deploy/mcp-gateway/gateway/app.py
+index 5d000b5..1490d19 100644
+--- a/deploy/mcp-gateway/gateway/app.py
++++ b/deploy/mcp-gateway/gateway/app.py
+@@ -5,17 +5,19 @@ from __future__ import annotations
+ from dataclasses import dataclass
+ 
+ from fastmcp import FastMCP
+-from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
+ 
+ from .audit.facade import Auditor
+ from .backend import ProductClient
+-from .config import Settings, settings as default_settings
++from .config import Settings
++from .config import settings as default_settings
+ from .domain.tenants import TenantRegistry
+ from .identity import IdentityResolver
++from .live_auth import ReloadingTokenVerifier
+ from .mcp_api.http import PublicPages
+ from .mcp_api.tools import register as register_tools
+ from .service import MemoryService
+ 
++
+ INSTRUCTIONS = (
+     "长期记忆服务。回答用户前先调用 search_memory 检索相关记忆；"
+     "用户明确要求记住某事时调用 add_message。"
+@@ -39,16 +41,13 @@ class App:
+ 
+ def build_app(settings: Settings | None = None) -> App:
+     settings = settings or default_settings
+-    tenants = TenantRegistry.from_raw(settings.tenants_raw)
++    # env(MEMOS_TENANTS) 为主，dashboard 合成下发的 tenants.conf 为辅；token 冲突直接拒启。
++    tenants = TenantRegistry.from_sources(settings.tenants_raw, settings.tenants_file)
+     identity = IdentityResolver(settings)
+     memory = MemoryService(ProductClient(settings), settings)
+     auditor = Auditor(settings, tenants, identity)
+ 
+-    verifier = (
+-        StaticTokenVerifier(tokens=tenants.verifier_tokens())
+-        if tenants
+-        else None
+-    )
++    verifier = ReloadingTokenVerifier(tenants) if tenants or settings.tenants_file else None
+     mcp = FastMCP(
+         name=settings.service_name,
+         instructions=INSTRUCTIONS,
+diff --git a/deploy/mcp-gateway/gateway/config.py b/deploy/mcp-gateway/gateway/config.py
+index b1ddbad..2d117d3 100644
+--- a/deploy/mcp-gateway/gateway/config.py
++++ b/deploy/mcp-gateway/gateway/config.py
+@@ -5,6 +5,7 @@ from __future__ import annotations
+ import os
+ import time
+ from dataclasses import dataclass
++from pathlib import Path
+ 
+ 
+ @dataclass(frozen=True)
+@@ -20,6 +21,8 @@ class Settings:
+     query_prefix: str
+     tenants_raw: str
+     started_at: float
++    # dashboard 合成下发的清单文件（"" = 不读文件）。env 缺省即仓库旁的 tenants.conf。
++    tenants_file: str = ""
+ 
+     @classmethod
+     def from_env(cls) -> Settings:
+@@ -38,6 +41,10 @@ class Settings:
+             audit_log_dir=os.getenv("MEMORY_AUDIT_LOG_DIR", call_log_dir),
+             query_prefix=os.getenv("MEMORY_QUERY_PREFIX", ""),
+             tenants_raw=os.getenv("MEMOS_TENANTS", ""),
++            tenants_file=os.getenv(
++                "MEMOS_TENANTS_FILE",
++                str(Path(__file__).resolve().parent.parent / "tenants.conf"),
++            ),
+             started_at=time.time(),
+         )
+ 
+diff --git a/deploy/mcp-gateway/gateway/domain/tenants.py b/deploy/mcp-gateway/gateway/domain/tenants.py
+index c649408..6d0b118 100644
+--- a/deploy/mcp-gateway/gateway/domain/tenants.py
++++ b/deploy/mcp-gateway/gateway/domain/tenants.py
+@@ -3,7 +3,12 @@
+ from __future__ import annotations
+ 
+ import json
++import os
++import threading
++
++from contextlib import contextmanager
+ from dataclasses import dataclass
++from pathlib import Path
+ 
+ 
+ @dataclass(frozen=True)
+@@ -12,7 +17,7 @@ class Tenant:
+     cube_id: str
+ 
+ 
+-def parse_tenants(raw: str) -> dict[str, Tenant]:
++def _parse_tenants(raw: str) -> dict[str, Tenant]:
+     """把 MEMOS_TENANTS 解析成 {token: Tenant}。"""
+     raw = (raw or "").strip()
+     if not raw:
+@@ -23,10 +28,13 @@ def parse_tenants(raw: str) -> dict[str, Tenant]:
+         for token, spec in data.items():
+             if isinstance(spec, str):
+                 spec = {"user_id": spec}
+-            uid = (spec or {}).get("user_id")
+-            if not uid:
+-                raise ValueError(f"tenant '{token}' has no user_id")
+-            out[token] = Tenant(user_id=uid, cube_id=spec.get("cube_id") or uid)
++            if not isinstance(spec, dict) or not isinstance(token, str) or not token:
++                raise ValueError("Invalid tenant entry")
++            uid = spec.get("user_id")
++            cube = spec.get("cube_id") or uid
++            if not isinstance(uid, str) or not uid or not isinstance(cube, str):
++                raise ValueError("Tenant entry has no valid user_id/cube_id")
++            out[token] = Tenant(user_id=uid, cube_id=cube)
+         return out
+     # 紧凑写法 tok:user_id,tok2:user_id2
+     # 用 rpartition 而不是 partition：token 里万一出现冒号也不会把映射切错，
+@@ -44,6 +52,83 @@ def parse_tenants(raw: str) -> dict[str, Tenant]:
+     return out
+ 
+ 
++def parse_tenants(raw: str) -> dict[str, Tenant]:
++    """Parse credentials without ever echoing source data in an exception."""
++    try:
++        return _parse_tenants(raw)
++    except (ValueError, TypeError, AttributeError):
++        raise ValueError(
++            "Invalid tenant configuration; expected token-to-identity mappings"
++        ) from None
++
++
++@contextmanager
++def _manifest_lock(path: Path, *, blocking: bool = True):
++    # Shared protocol with dashboard.key_store.manifest_lock; lock the first byte.
++    with path.with_name(path.name + ".lock").open("a+b") as handle:
++        handle.seek(0, os.SEEK_END)
++        if not handle.tell():
++            handle.write(b"0")
++            handle.flush()
++        handle.seek(0)
++        if os.name == "nt":
++            import msvcrt
++
++            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
++        else:
++            import fcntl
++
++            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
++        try:
++            yield
++        finally:
++            handle.seek(0)
++            if os.name == "nt":
++                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
++            else:
++                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
++
++
++def load_tenants_file(
++    path: str | os.PathLike[str] | None, *, blocking: bool = True
++) -> dict[str, Tenant]:
++    """Load only a confirmed publication, never a precommit or unreconciled file."""
++    if not path:
++        return {}
++    path = Path(path)
++    if not path.parent.exists():
++        return {}
++    with _manifest_lock(path, blocking=blocking):
++        if path.with_name(path.name + ".pending").exists():
++            raise ValueError(
++                "Tenant configuration awaits dashboard reconciliation; refusing startup"
++            )
++        try:
++            text = path.read_text(encoding="utf-8")
++        except FileNotFoundError:
++            return {}
++        return parse_tenants(text)
++
++
++def merge_tenants(
++    base: dict[str, Tenant], extra: dict[str, Tenant], *, extra_source: str
++) -> dict[str, Tenant]:
++    """env 为主、dashboard 文件为辅；同 token 但身份不同 → 拒绝启动，点名双来源。
++
++    错误信息只带 token 掩码，绝不落 token 明文。
++    """
++    merged = dict(base)
++    for token, tenant in extra.items():
++        clash = merged.get(token)
++        if clash is not None and clash != tenant:
++            raise ValueError(
++                f"tenant token conflict between MEMOS_TENANTS and {extra_source}: "
++                f"token {mask_token(token)}"
++            )
++        merged[token] = tenant
++    return merged
++
++
+ def mask_token(token: str | None) -> str | None:
+     """token 掩码：前 12 + 后 4。"""
+     if not token:
+@@ -55,7 +140,61 @@ def mask_token(token: str | None) -> str | None:
+ 
+ class TenantRegistry:
+     def __init__(self, mapping: dict[str, Tenant]):
+-        self._by_token = mapping
++        self._by_token = dict(mapping)
++        self._base = dict(mapping)
++        self._path: Path | None = None
++        self._version = None
++        self._refresh_lock = threading.Lock()
++
++    @classmethod
++    def from_sources(cls, raw: str, path: str | os.PathLike[str] | None) -> TenantRegistry:
++        """Static environment identities plus a revocable, atomically published file."""
++        registry = cls(parse_tenants(raw))
++        registry._path = Path(path) if path else None
++        registry._refresh(strict=True)
++        return registry
++
++    @staticmethod
++    def _stat(path: Path) -> tuple | None:
++        try:
++            stat = path.stat()
++        except FileNotFoundError:
++            return None
++        return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
++
++    def _signature(self) -> tuple:
++        path = self._path
++        return self._stat(path), self._stat(path.with_name(path.name + ".pending"))
++
++    def _refresh(self, *, strict: bool = False) -> None:
++        if self._path is None:
++            return
++        with self._refresh_lock:
++            try:
++                before = self._signature()
++                if before == self._version:
++                    return
++                extra = load_tenants_file(self._path, blocking=strict)
++                after = self._signature()
++                if before != after:
++                    raise ValueError("Tenant publication changed during reload")
++                merged = merge_tenants(self._base, extra, extra_source="tenants.conf")
++                self._by_token = merged  # replace one immutable snapshot, never mutate it
++                self._version = after
++            except (OSError, ValueError, UnicodeError):
++                # Retaining a stale file snapshot would also retain revoked keys.
++                self._by_token = dict(self._base)
++                self._version = None  # retry even if the unreadable file stat is unchanged
++                if strict:
++                    raise ValueError("Tenant configuration unavailable or unconfirmed") from None
++
++    def authenticate(self, token: str | None) -> Tenant | None:
++        """Refresh before each auth decision; execute this disk work off the event loop."""
++        # Keep refresh + lookup linearizable across concurrent verifier threads.
++        # _refresh owns the lock; the returned immutable snapshot remains valid for
++        # this decision even if another request publishes the next one afterwards.
++        self._refresh()
++        return self.get(token)
+ 
+     @classmethod
+     def from_raw(cls, raw: str) -> TenantRegistry:
+diff --git a/docs/openapi.json b/docs/openapi.json
+index ef8102c..3b7a241 100644
+--- a/docs/openapi.json
++++ b/docs/openapi.json
+@@ -2337,6 +2337,252 @@
+         }
+       }
+     },
++    "/product/list_profile_memories": {
++      "post": {
++        "tags": [
++          "Server API"
++        ],
++        "summary": "List Profile Memories",
++        "operationId": "list_profile_memories_product_list_profile_memories_post",
++        "requestBody": {
++          "content": {
++            "application/json": {
++              "schema": {
++                "$ref": "#/components/schemas/ProfileMemoryListRequest"
++              }
++            }
++          },
++          "required": true
++        },
++        "responses": {
++          "200": {
++            "description": "Successful Response",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/GetMemoryResponse"
++                }
++              }
++            }
++          },
++          "422": {
++            "description": "Validation Error",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/HTTPValidationError"
++                }
++              }
++            }
++          }
++        }
++      }
++    },
++    "/product/get_profile_memory": {
++      "post": {
++        "tags": [
++          "Server API"
++        ],
++        "summary": "Get Profile Memory",
++        "operationId": "get_profile_memory_product_get_profile_memory_post",
++        "requestBody": {
++          "content": {
++            "application/json": {
++              "schema": {
++                "$ref": "#/components/schemas/ProfileMemoryGetRequest"
++              }
++            }
++          },
++          "required": true
++        },
++        "responses": {
++          "200": {
++            "description": "Successful Response",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/GetMemoryResponse"
++                }
++              }
++            }
++          },
++          "422": {
++            "description": "Validation Error",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/HTTPValidationError"
++                }
++              }
++            }
++          }
++        }
++      }
++    },
++    "/product/transition_memory": {
++      "post": {
++        "tags": [
++          "Server API"
++        ],
++        "summary": "Transition Memory",
++        "operationId": "transition_memory_product_transition_memory_post",
++        "requestBody": {
++          "content": {
++            "application/json": {
++              "schema": {
++                "$ref": "#/components/schemas/TransitionMemoryRequest"
++              }
++            }
++          },
++          "required": true
++        },
++        "responses": {
++          "200": {
++            "description": "Successful Response",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/GetMemoryResponse"
++                }
++              }
++            }
++          },
++          "422": {
++            "description": "Validation Error",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/HTTPValidationError"
++                }
++              }
++            }
++          }
++        }
++      }
++    },
++    "/product/transition_profile_memory": {
++      "post": {
++        "tags": [
++          "Server API"
++        ],
++        "summary": "Transition Profile",
++        "operationId": "transition_profile_product_transition_profile_memory_post",
++        "requestBody": {
++          "content": {
++            "application/json": {
++              "schema": {
++                "$ref": "#/components/schemas/TransitionMemoryRequest"
++              }
++            }
++          },
++          "required": true
++        },
++        "responses": {
++          "200": {
++            "description": "Successful Response",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/GetMemoryResponse"
++                }
++              }
++            }
++          },
++          "422": {
++            "description": "Validation Error",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/HTTPValidationError"
++                }
++              }
++            }
++          }
++        }
++      }
++    },
++    "/product/inspect_memory_lifecycle": {
++      "post": {
++        "tags": [
++          "Server API"
++        ],
++        "summary": "Inspect",
++        "operationId": "inspect_product_inspect_memory_lifecycle_post",
++        "requestBody": {
++          "content": {
++            "application/json": {
++              "schema": {
++                "$ref": "#/components/schemas/LifecycleProbeRequest"
++              }
++            }
++          },
++          "required": true
++        },
++        "responses": {
++          "200": {
++            "description": "Successful Response",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/GetMemoryResponse"
++                }
++              }
++            }
++          },
++          "422": {
++            "description": "Validation Error",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/HTTPValidationError"
++                }
++              }
++            }
++          }
++        }
++      }
++    },
++    "/product/get_memory_operation": {
++      "post": {
++        "tags": [
++          "Server API"
++        ],
++        "summary": "Operation",
++        "operationId": "operation_product_get_memory_operation_post",
++        "requestBody": {
++          "content": {
++            "application/json": {
++              "schema": {
++                "$ref": "#/components/schemas/OperationRequest"
++              }
++            }
++          },
++          "required": true
++        },
++        "responses": {
++          "200": {
++            "description": "Successful Response",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/GetMemoryResponse"
++                }
++              }
++            }
++          },
++          "422": {
++            "description": "Validation Error",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/HTTPValidationError"
++                }
++              }
++            }
++          }
++        }
++      }
++    },
+     "/add/message": {
+       "post": {
+         "summary": "Add conversation messages (cloud contract)",
+@@ -8195,6 +8441,41 @@
+             "title": "Filter",
+             "description": "Optional metadata filter applied when retrieving memories."
+           },
++          "status": {
++            "anyOf": [
++              {
++                "items": {
++                  "type": "string"
++                },
++                "type": "array"
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Status",
++            "description": "Only return nodes in these lifecycle statuses. Omitted or None keeps the historical LISTED_STATUSES behaviour (activated/resolving/frozen/expired); an explicit list (e.g. ['activated']) narrows the listing."
++          },
++          "event_memory_types": {
++            "anyOf": [
++              {
++                "items": {
++                  "type": "string",
++                  "enum": [
++                    "EventMemory",
++                    "Context",
++                    "InsightMemory"
++                  ]
++                },
++                "type": "array"
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Event Memory Types",
++            "description": "Optional event-view types; omitted retains EventMemory only"
++          },
+           "page": {
+             "anyOf": [
+               {
+@@ -8502,6 +8783,41 @@
+             "title": "Filter",
+             "description": "Optional metadata filter applied when retrieving memories."
+           },
++          "status": {
++            "anyOf": [
++              {
++                "items": {
++                  "type": "string"
++                },
++                "type": "array"
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Status",
++            "description": "Only return nodes in these lifecycle statuses. Omitted or None keeps the historical LISTED_STATUSES behaviour (activated/resolving/frozen/expired); an explicit list (e.g. ['activated']) narrows the listing."
++          },
++          "event_memory_types": {
++            "anyOf": [
++              {
++                "items": {
++                  "type": "string",
++                  "enum": [
++                    "EventMemory",
++                    "Context",
++                    "InsightMemory"
++                  ]
++                },
++                "type": "array"
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Event Memory Types",
++            "description": "Optional event-view types; omitted retains EventMemory only"
++          },
+           "page": {
+             "anyOf": [
+               {
+@@ -9195,6 +9511,40 @@
+         "title": "KnowledgeBaseUpdateRequest",
+         "description": "Rename a knowledge base or replace its description."
+       },
++      "LifecycleProbeRequest": {
++        "properties": {
++          "mem_cube_id": {
++            "type": "string",
++            "maxLength": 128,
++            "minLength": 1,
++            "pattern": "^[A-Za-z0-9_.-]+$",
++            "title": "Mem Cube Id"
++          },
++          "memory_id": {
++            "type": "string",
++            "maxLength": 1024,
++            "minLength": 1,
++            "pattern": "^[^\\x00-\\x1f\\x7f]+$",
++            "title": "Memory Id"
++          },
++          "kind": {
++            "type": "string",
++            "enum": [
++              "graph",
++              "profile"
++            ],
++            "title": "Kind",
++            "default": "graph"
++          }
++        },
++        "additionalProperties": false,
++        "type": "object",
++        "required": [
++          "mem_cube_id",
++          "memory_id"
++        ],
++        "title": "LifecycleProbeRequest"
++      },
+       "MemoryResponse": {
+         "properties": {
+           "code": {
+@@ -9333,6 +9683,31 @@
+         ],
+         "title": "ModelRecord"
+       },
++      "OperationRequest": {
++        "properties": {
++          "mem_cube_id": {
++            "type": "string",
++            "maxLength": 128,
++            "minLength": 1,
++            "pattern": "^[A-Za-z0-9_.-]+$",
++            "title": "Mem Cube Id"
++          },
++          "operation_id": {
++            "type": "string",
++            "maxLength": 128,
++            "minLength": 1,
++            "pattern": "^[A-Za-z0-9_.-]+$",
++            "title": "Operation Id"
++          }
++        },
++        "additionalProperties": false,
++        "type": "object",
++        "required": [
++          "mem_cube_id",
++          "operation_id"
++        ],
++        "title": "OperationRequest"
++      },
+       "PermissionDict": {
+         "properties": {
+           "permissions": {
+@@ -9532,6 +9907,139 @@
+         "title": "ProfileEditRequest",
+         "description": "Edit one profile instance."
+       },
++      "ProfileMemoryGetRequest": {
++        "properties": {
++          "mem_cube_id": {
++            "type": "string",
++            "maxLength": 256,
++            "minLength": 1,
++            "title": "Mem Cube Id"
++          },
++          "memory_id": {
++            "type": "string",
++            "maxLength": 1024,
++            "minLength": 1,
++            "title": "Memory Id"
++          }
++        },
++        "type": "object",
++        "required": [
++          "mem_cube_id",
++          "memory_id"
++        ],
++        "title": "ProfileMemoryGetRequest",
++        "description": "Resolve a generated profile field id inside one cube."
++      },
++      "ProfileMemoryListRequest": {
++        "properties": {
++          "mem_cube_id": {
++            "type": "string",
++            "maxLength": 256,
++            "minLength": 1,
++            "title": "Mem Cube Id"
++          },
++          "subject_type": {
++            "anyOf": [
++              {
++                "type": "string",
++                "enum": [
++                  "user",
++                  "agent",
++                  "public"
++                ]
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Subject Type"
++          },
++          "subject_id": {
++            "anyOf": [
++              {
++                "type": "string",
++                "maxLength": 256
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Subject Id"
++          },
++          "search": {
++            "anyOf": [
++              {
++                "type": "string",
++                "maxLength": 1000
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Search"
++          },
++          "knowledgebase_id": {
++            "anyOf": [
++              {
++                "type": "string",
++                "maxLength": 256
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Knowledgebase Id"
++          },
++          "start_time": {
++            "anyOf": [
++              {
++                "type": "string",
++                "format": "date-time"
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Start Time"
++          },
++          "end_time": {
++            "anyOf": [
++              {
++                "type": "string",
++                "format": "date-time"
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "End Time"
++          },
++          "end_exclusive": {
++            "type": "boolean",
++            "title": "End Exclusive",
++            "default": false
++          },
++          "page": {
++            "type": "integer",
++            "minimum": 1.0,
++            "title": "Page",
++            "default": 1
++          },
++          "page_size": {
++            "type": "integer",
++            "maximum": 100.0,
++            "minimum": 1.0,
++            "title": "Page Size",
++            "default": 20
++          }
++        },
++        "type": "object",
++        "required": [
++          "mem_cube_id"
++        ],
++        "title": "ProfileMemoryListRequest",
++        "description": "Tenant-scoped, read-only profile fields for administrative listing."
++      },
+       "ProfileQueryRequest": {
+         "properties": {
+           "user_id": {
+@@ -10623,6 +11131,57 @@
+         "title": "TaskSummary",
+         "description": "Aggregated counts of tasks by status."
+       },
++      "TransitionMemoryRequest": {
++        "properties": {
++          "mem_cube_id": {
++            "type": "string",
++            "maxLength": 128,
++            "minLength": 1,
++            "pattern": "^[A-Za-z0-9_.-]+$",
++            "title": "Mem Cube Id"
++          },
++          "memory_id": {
++            "type": "string",
++            "maxLength": 1024,
++            "minLength": 1,
++            "pattern": "^[^\\x00-\\x1f\\x7f]+$",
++            "title": "Memory Id"
++          },
++          "kind": {
++            "type": "string",
++            "enum": [
++              "graph",
++              "profile"
++            ],
++            "title": "Kind",
++            "default": "graph"
++          },
++          "target_status": {
++            "type": "string",
++            "enum": [
++              "deleted",
++              "restore"
++            ],
++            "title": "Target Status"
++          },
++          "operation_id": {
++            "type": "string",
++            "maxLength": 128,
++            "minLength": 1,
++            "pattern": "^[A-Za-z0-9_.-]+$",
++            "title": "Operation Id"
++          }
++        },
++        "additionalProperties": false,
++        "type": "object",
++        "required": [
++          "mem_cube_id",
++          "memory_id",
++          "target_status",
++          "operation_id"
++        ],
++        "title": "TransitionMemoryRequest"
++      },
+       "UpdateMemoryRequest": {
+         "properties": {
+           "memory_id": {
+diff --git a/src/memos/api/handlers/memory_handler.py b/src/memos/api/handlers/memory_handler.py
+index 51c71df..6acf9e5 100644
+--- a/src/memos/api/handlers/memory_handler.py
++++ b/src/memos/api/handlers/memory_handler.py
+@@ -146,6 +146,11 @@ def handle_get_subgraph(
+         memories = naive_mem_cube.text_mem.get_relevant_subgraph(
+             query, top_k=top_k, user_name=mem_cube_id, search_type=search_type
+         )
++        from memos.api.memory_visibility import filter_current_subgraph
++
++        memories = filter_current_subgraph(
++            memories, naive_mem_cube.text_mem.graph_store, mem_cube_id
++        )
+ 
+         # Format and convert to tree structure
+         memories_cleaned = remove_embedding_recursive(memories)
+@@ -202,12 +207,14 @@ def handle_get_memory(
+ 
+     try:
+         memory = naive_mem_cube.text_mem.get(memory_id, user_name=mem_cube_id)
+-    except Exception as e:
++    except ValueError as e:
+         logger.error(f"Failed to get memory {memory_id}: {e}")
+         memory = None
+ 
+     # Get the data
+     data = _with_skill_url(memory.model_dump()) if memory else None
++    if data and (data.get("metadata") or {}).get("status") == "deleted":
++        data = None
+ 
+     return GetMemoryResponse(
+         message="Memory retrieved successfully"
+@@ -230,7 +237,7 @@ def handle_get_memory_by_ids(
+     """
+     try:
+         memories = naive_mem_cube.text_mem.get_by_ids(memory_ids=memory_ids, user_name=mem_cube_id)
+-    except Exception as e:
++    except ValueError as e:
+         logger.error(f"Failed to get memories: {e}")
+         memories = []
+ 
+@@ -241,7 +248,13 @@ def handle_get_memory_by_ids(
+     return GetMemoryResponse(
+         message="Memories retrieved successfully",
+         code=200,
+-        data={"memories": [_with_skill_url(memory) for memory in memories]},
++        data={
++            "memories": [
++                _with_skill_url(memory)
++                for memory in memories
++                if (memory.get("metadata") or {}).get("status") != "deleted"
++            ]
++        },
+     )
+ 
+ 
+@@ -309,12 +322,17 @@ def handle_get_memory_graph(
+     endpoints fall outside the returned node page are dropped, because a client
+     cannot draw a dangling edge.
+     """
+-    exported = naive_mem_cube.text_mem.get_all(
+-        user_name=get_graph_req.mem_cube_id,
+-        page=1,
+-        page_size=get_graph_req.limit,
+-        memory_type=get_graph_req.memory_types,
+-        status=get_graph_req.status,
++    statuses = [status for status in get_graph_req.status if status != "deleted"]
++    exported = (
++        naive_mem_cube.text_mem.get_all(
++            user_name=get_graph_req.mem_cube_id,
++            page=1,
++            page_size=get_graph_req.limit,
++            memory_type=get_graph_req.memory_types,
++            status=statuses,
++        )
++        if statuses
++        else {"nodes": [], "edges": [], "total_nodes": 0}
+     )
+     raw_nodes = exported.get("nodes") or []
+     nodes = [_graph_node_json(node, get_graph_req.label_max) for node in raw_nodes]
+@@ -362,8 +380,14 @@ def handle_get_event_memories(
+         "memory_type": get_event_req.memory_types or None,
+     }
+     if get_event_req.status:
+-        get_all_kwargs["status"] = get_event_req.status
+-    exported = naive_mem_cube.text_mem.get_all(**get_all_kwargs)
++        get_all_kwargs["status"] = [
++            status for status in get_event_req.status if status != "deleted"
++        ]
++    exported = (
++        naive_mem_cube.text_mem.get_all(**get_all_kwargs)
++        if get_all_kwargs.get("status") != []
++        else {"nodes": [], "total_nodes": 0}
++    )
+     memories = [_graph_node_json(node, None) for node in (exported.get("nodes") or [])]
+     total = int(exported.get("total_nodes") or len(memories))
+     return GetEventMemoriesResponse(
+@@ -438,6 +462,9 @@ def handle_get_memories(
+         return [{"cube_id": get_mem_req.mem_cube_id, "memories": memories, "total_nodes": total}]
+ 
+     def list_of(memory_type: list[str]) -> tuple[list[dict[str, Any]], int]:
++        statuses = [s for s in (get_mem_req.status or LISTED_STATUSES) if s != "deleted"]
++        if not statuses:
++            return [], 0
+         info = naive_mem_cube.text_mem.get_all(
+             user_name=get_mem_req.mem_cube_id,
+             user_id=get_mem_req.user_id,
+@@ -445,7 +472,7 @@ def handle_get_memories(
+             page_size=get_mem_req.page_size,
+             filter=filter_,
+             memory_type=memory_type,
+-            status=LISTED_STATUSES,
++            status=statuses,
+         )
+         return info["nodes"], info["total_nodes"]
+ 
+@@ -458,7 +485,9 @@ def handle_get_memories(
+         if "detail_factual" in views:
+             results["text_mem"] = bucket(*list_of(detail_types))
+         if "event" in views:
+-            results["event_mem"] = bucket(*list_of(["EventMemory"]))
++            results["event_mem"] = bucket(
++                *list_of(get_mem_req.event_memory_types or ["EventMemory"])
++            )
+ 
+     if get_mem_req.include_tool_memory:
+         memories, total = list_of(["ToolSchemaMemory", "ToolTrajectoryMemory"])
+@@ -761,9 +790,7 @@ def handle_delete_memories(
+             # cube 的 id; 两者都没有则拒绝,避免只凭 id 删到别的租户。
+             delete_scope = delete_mem_req.writable_cube_ids
+             if not delete_scope:
+-                cube_id = getattr(
+-                    getattr(naive_mem_cube.text_mem, "config", None), "cube_id", None
+-                )
++                cube_id = getattr(getattr(naive_mem_cube.text_mem, "config", None), "cube_id", None)
+                 delete_scope = [cube_id] if cube_id else None
+             if not delete_scope:
+                 return DeleteMemoryResponse(
+diff --git a/src/memos/api/handlers/prompt_handler.py b/src/memos/api/handlers/prompt_handler.py
+index 8fdc273..7a52f6d 100644
+--- a/src/memos/api/handlers/prompt_handler.py
++++ b/src/memos/api/handlers/prompt_handler.py
+@@ -211,9 +211,15 @@ class PromptHandler(BaseHandler):
+         results: list[ExtractDebugResult] = []
+         try:
+             parsed = parse_json_result(raw or "")
+-        except Exception:  # noqa: BLE001 - a malformed model reply must not 500
++        except Exception:
+             parsed = None
+-        memory_list = (parsed or {}).get("memory list") or (parsed or {}).get("memory_list")
++        # A valid empty list means "no memories", not malformed model output.
++        # Match the runtime reader: the explicit primary key takes precedence.
++        memory_list = (
++            parsed.get("memory list", parsed.get("memory_list"))
++            if isinstance(parsed, dict)
++            else None
++        )
+         if isinstance(memory_list, list):
+             for item in memory_list:
+                 if not isinstance(item, dict):
+diff --git a/src/memos/api/handlers/search_handler.py b/src/memos/api/handlers/search_handler.py
+index c25f435..9fd9f7a 100644
+--- a/src/memos/api/handlers/search_handler.py
++++ b/src/memos/api/handlers/search_handler.py
+@@ -252,6 +252,14 @@ class SearchHandler(BaseHandler):
+         )
+         if search_req_local.include_history:
+             results = self._attach_history_versions(results)
++        from memos.api.cloud_store import build_metadata_store
++        from memos.api.memory_visibility import confirm_current_memories
++        from memos.api.profile import ProfileService
++
++        graph = self.graph_db
++        results = confirm_current_memories(
++            results, graph, ProfileService(build_metadata_store(graph))
++        )
+         return results
+ 
+     @staticmethod
+diff --git a/src/memos/api/product_models.py b/src/memos/api/product_models.py
+index 57a4249..8cdf3e3 100644
+--- a/src/memos/api/product_models.py
++++ b/src/memos/api/product_models.py
+@@ -1,5 +1,6 @@
+ import uuid
+ 
++from datetime import datetime
+ from typing import Any, Generic, Literal, TypeVar
+ 
+ from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
+@@ -1561,6 +1562,17 @@ class GetMemoryRequest(BaseRequest):
+         None,
+         description="Optional metadata filter applied when retrieving memories.",
+     )
++    status: list[str] | None = Field(
++        None,
++        description=(
++            "Only return nodes in these lifecycle statuses. Omitted or None keeps the "
++            "historical LISTED_STATUSES behaviour (activated/resolving/frozen/expired); "
++            "an explicit list (e.g. ['activated']) narrows the listing."
++        ),
++    )
++    event_memory_types: list[Literal["EventMemory", "Context", "InsightMemory"]] | None = Field(
++        None, description="Optional event-view types; omitted retains EventMemory only"
++    )
+     page: int | None = Field(1, ge=1, description="Page number, starting at 1 (cloud default 1)")
+     page_size: int | None = Field(
+         10, ge=1, description="Items per page (cloud default 10); None exports everything"
+@@ -2405,6 +2417,37 @@ class KnowledgeBaseFileDownloadRequest(BaseRequest):
+     file_id: str = Field(..., description="File id")
+ 
+ 
++class ProfileMemoryListRequest(BaseRequest):
++    """Tenant-scoped, read-only profile fields for administrative listing."""
++
++    mem_cube_id: str = Field(..., min_length=1, max_length=256)
++    subject_type: Literal["user", "agent", "public"] | None = None
++    subject_id: str | None = Field(None, max_length=256)
++    search: str | None = Field(None, max_length=1000)
++    knowledgebase_id: str | None = Field(None, max_length=256)
++    start_time: datetime | None = None
++    end_time: datetime | None = None
++    end_exclusive: bool = False
++    page: int = Field(1, ge=1, strict=True)
++    page_size: int = Field(20, ge=1, le=100, strict=True)
++
++    @model_validator(mode="after")
++    def validate_time_range(self) -> "ProfileMemoryListRequest":
++        for value in (self.start_time, self.end_time):
++            if value is not None and value.utcoffset() is None:
++                raise ValueError("Time filters must include timezone offsets")
++        if self.start_time and self.end_time and self.start_time > self.end_time:
++            raise ValueError("start_time must not exceed end_time")
++        return self
++
++
++class ProfileMemoryGetRequest(BaseRequest):
++    """Resolve a generated profile field id inside one cube."""
++
++    mem_cube_id: str = Field(..., min_length=1, max_length=256)
++    memory_id: str = Field(..., min_length=1, max_length=1024)
++
++
+ class ProfileTemplateCreateRequest(BaseRequest):
+     """Create a profile template."""
+ 
+diff --git a/src/memos/api/profile.py b/src/memos/api/profile.py
+index 44da489..aec1a12 100644
+--- a/src/memos/api/profile.py
++++ b/src/memos/api/profile.py
+@@ -24,6 +24,7 @@ from dataclasses import dataclass
+ from datetime import datetime, timezone
+ from typing import TYPE_CHECKING, Any
+ 
++from memos.api.control_lock import serialized_profile_write
+ from memos.log import get_logger
+ from memos.mem_reader.custom_extract import apply_custom_extract_prompt
+ 
+@@ -58,6 +59,7 @@ class ProfileService:
+ 
+     # ── templates ────────────────────────────────────────────────────────────
+ 
++    @serialized_profile_write
+     def add_template(self, *, user_name: str, name: str, metadata: dict[str, Any]) -> dict:
+         name = (name or "").strip()
+         if not name:
+@@ -90,6 +92,7 @@ class ProfileService:
+         document = self._owned_template(user_name, template_id)
+         return self._template_view(document, user_name) if document else None
+ 
++    @serialized_profile_write
+     def update_template(
+         self,
+         *,
+@@ -136,6 +139,7 @@ class ProfileService:
+         self.store.put(PROFILE_TEMPLATE_KIND, document)
+         return {**self._template_view(document, user_name), "affected_instances": affected}
+ 
++    @serialized_profile_write
+     def delete_template(self, *, user_name: str, template_id: str) -> bool:
+         document = self._owned_template(user_name, template_id)
+         if document is None:
+@@ -148,6 +152,7 @@ class ProfileService:
+ 
+     # ── instances ────────────────────────────────────────────────────────────
+ 
++    @serialized_profile_write
+     def bind(self, *, user_name: str, bind_list: list[dict[str, Any]]) -> list[dict]:
+         bound: list[dict] = []
+         for item in bind_list or []:
+@@ -187,6 +192,7 @@ class ProfileService:
+             bound.append(self.instance_view(instance))
+         return bound
+ 
++    @serialized_profile_write
+     def edit(
+         self,
+         *,
+@@ -207,6 +213,8 @@ class ProfileService:
+ 
+         for path, change in flatten_edits(metadata or {}).items():
+             current = fields.get(path) or {}
++            if current.get("status") == "deleted":
++                continue
+             kept_flag = current.get(
+                 "algorithm_updatable", allowed.get(path, {}).get("algorithm_updatable", True)
+             )
+@@ -219,7 +227,7 @@ class ProfileService:
+             }
+ 
+         for path in remove_fields or []:
+-            if path in fields:
++            if path in fields and fields[path].get("status") != "deleted":
+                 fields[path]["value"] = None
+                 fields[path]["deprecated"] = True
+ 
+@@ -227,6 +235,7 @@ class ProfileService:
+         self.store.put(PROFILE_INSTANCE_KIND, instance)
+         return self.instance_view(instance)
+ 
++    @serialized_profile_write
+     def delete_instance(
+         self,
+         *,
+@@ -260,6 +269,7 @@ class ProfileService:
+ 
+     # ── extraction / recall ──────────────────────────────────────────────────
+ 
++    @serialized_profile_write
+     def extract_and_update(
+         self,
+         *,
+@@ -293,6 +303,7 @@ class ProfileService:
+                 path: leaf
+                 for path, leaf in flatten_template(template.get("metadata") or {}).items()
+                 if leaf.get("algorithm_updatable", True)
++                and (instance.get("fields", {}).get(path) or {}).get("status") != "deleted"
+             }
+             if not updatable:
+                 continue
+@@ -352,7 +363,11 @@ class ProfileService:
+             template_id_value = instance.get("template_id")
+             for path, field in (instance.get("fields") or {}).items():
+                 value = field.get("value")
+-                if value in (None, "", [], {}) or field.get("deprecated"):
++                if (
++                    value in (None, "", [], {})
++                    or field.get("deprecated")
++                    or field.get("status") == "deleted"
++                ):
+                     continue
+                 category, _, name = path.rpartition(".")
+                 memories.append(
+@@ -382,6 +397,119 @@ class ProfileService:
+             memories = memories[:top_k]
+         return memories
+ 
++    def list_field_rows(
++        self,
++        *,
++        user_name: str,
++        subject_type: str | None = None,
++        subject_id: str | None = None,
++        search: str | None = None,
++        start_time: str | None = None,
++        end_time: str | None = None,
++        end_exclusive: bool = False,
++        knowledgebase_id: str | None = None,
++        page: int = 1,
++        page_size: int = 20,
++    ) -> tuple[list[dict], int]:
++        """Tenant-wide field rows; filter and count before slicing a stable page."""
++        rows: list[dict] = []
++        for instance in self._instances(
++            user_name=user_name, subject_type=subject_type, subject_id=subject_id, status="bound"
++        ):
++            if instance.get("user_name") != user_name:
++                continue
++            if knowledgebase_id and instance.get("knowledgebase_id") != knowledgebase_id:
++                continue
++            for path in instance.get("fields") or {}:
++                row = self._field_row(instance, path)
++                if row is None or (search and search.casefold() not in row["memory"].casefold()):
++                    continue
++                created = _row_timestamp(row.get("created_at"))
++                if start_time and created < _row_timestamp(start_time):
++                    continue
++                if end_time:
++                    end = _row_timestamp(end_time)
++                    if created > end or (end_exclusive and created == end):
++                        continue
++                rows.append(row)
++        rows.sort(key=lambda row: (row["profile_instance_id"], row["profile_path"]))
++        rows.sort(key=lambda row: _row_timestamp(row.get("created_at")), reverse=True)
++        total = len(rows)
++        offset = (page - 1) * page_size
++        return rows[offset : offset + page_size], total
++
++    def get_field_row(self, *, user_name: str, memory_id: str) -> dict | None:
++        """Resolve an opaque field ID without splitting underscores in the path."""
++        match = re.fullmatch(r"(profile_[0-9a-f]{32})_(.+)", memory_id)
++        if match is None:
++            return None
++        instance = self.store.get(PROFILE_INSTANCE_KIND, match.group(1))
++        if (
++            instance is None
++            or instance.get("user_name") != user_name
++            or instance.get("status") != "bound"
++        ):
++            return None
++        return self._field_row(instance, match.group(2))
++
++    @staticmethod
++    def _field_row(instance: dict, path: str) -> dict | None:
++        field = (instance.get("fields") or {}).get(path)
++        if not isinstance(field, dict):
++            return None
++        value = field.get("value")
++        if (
++            value in (None, "", [], {})
++            or field.get("deprecated")
++            or field.get("status", "activated") != "activated"
++        ):
++            return None
++        return {
++            "id": f"{instance['entity_id']}_{path}",
++            "memory": f"{path}: {value}",
++            "memory_type": PROFILE_MEMORY_TYPE,
++            "status": "activated",
++            "user_name": instance["user_name"],
++            "subject_type": instance.get("subject_type"),
++            "subject_id": instance.get("subject_id"),
++            "template_id": instance.get("template_id"),
++            "profile_instance_id": instance["entity_id"],
++            "profile_path": path,
++            "created_at": instance.get("created_at"),
++            "updated_at": instance.get("updated_at"),
++        }
++
++    def lifecycle_field(self, user_name: str, memory_id: str) -> tuple[dict, dict, str] | None:
++        """Trusted control-plane lookup; includes tombstones, never crosses cubes."""
++        match = re.fullmatch(r"(profile_[0-9a-f]{32})_(.+)", memory_id)
++        if match is None:
++            return None
++        instance = self.store.get(PROFILE_INSTANCE_KIND, match.group(1))
++        if (
++            not instance
++            or instance.get("user_name") != user_name
++            or instance.get("status") != "bound"
++        ):
++            return None
++        field = (instance.get("fields") or {}).get(match.group(2))
++        if (
++            not isinstance(field, dict)
++            or field.get("deprecated")
++            or field.get("value") in (None, "", [], {})
++        ):
++            return None
++        return instance, field, match.group(2)
++
++    def apply_field_lifecycle(self, user_name: str, memory_id: str, fields: dict) -> None:
++        # Called only while holding the shared profile-writes lock.
++        found = self.lifecycle_field(user_name, memory_id)
++        if found is None:
++            raise ProfileValidationError("Profile field not found")
++        instance, field, _ = found
++        field.update(fields)
++        instance["updated_at"] = _utc_now()
++        self.store.put(PROFILE_INSTANCE_KIND, instance)
++
+     # ── internals ────────────────────────────────────────────────────────────
+ 
+     def _owned_template(self, user_name: str, template_id: str) -> dict | None:
+@@ -478,12 +606,22 @@ class ProfileService:
+                     **({"deprecated": True} if field.get("deprecated") else {}),
+                 }
+                 for path, field in (instance.get("fields") or {}).items()
++                if field.get("status") != "deleted"
+             },
+             "created_at": instance.get("created_at"),
+             "updated_at": instance.get("updated_at"),
+         }
+ 
+ 
++def _row_timestamp(value: str | None) -> datetime:
++    if not value:
++        return datetime.min.replace(tzinfo=timezone.utc)
++    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
++    if parsed.tzinfo is None:
++        raise ValueError("Profile timestamps must include a timezone")
++    return parsed.astimezone(timezone.utc)
++
++
+ # ── template helpers ─────────────────────────────────────────────────────────
+ 
+ 
+@@ -618,6 +756,8 @@ def _sync_instance_fields(
+                 "deprecated": path in deprecated,
+             }
+             continue
++        if current.get("status") == "deleted":
++            continue
+         if reset_flags_of is None or path in reset_flags_of:
+             current["algorithm_updatable"] = bool(leaf.get("algorithm_updatable", True))
+         current.setdefault("value", _copy_value(leaf.get("value")))
+diff --git a/src/memos/api/routers/server_router.py b/src/memos/api/routers/server_router.py
+index 00259ab..f2b79e9 100644
+--- a/src/memos/api/routers/server_router.py
++++ b/src/memos/api/routers/server_router.py
+@@ -34,6 +34,7 @@ from memos.api.handlers.formatters_handler import strip_memory_sources
+ from memos.api.handlers.prompt_handler import PromptHandler, model_list
+ from memos.api.handlers.search_handler import SearchHandler
+ from memos.api.knowledge_base import KnowledgeBaseService
++from memos.api.memory_lifecycle_routes import create_lifecycle_router
+ from memos.api.message_store import build_message_store
+ from memos.api.product_models import (
+     AddStatusRequestV2,
+@@ -108,6 +109,7 @@ from memos.api.product_models import (
+     UpdateMemoryResponse,
+ )
+ from memos.api.profile import ProfileService
++from memos.api.profile_memory_routes import create_profile_memory_router
+ from memos.api.skill_sink import SkillMemorySink
+ from memos.log import get_logger
+ from memos.mem_scheduler.base_scheduler import BaseScheduler
+@@ -199,6 +201,12 @@ def get_profile_service() -> ProfileService:
+     return ProfileService(get_cloud_store())
+ 
+ 
++def get_memory_lifecycle():
++    from memos.api.memory_lifecycle import MemoryLifecycle
++
++    return MemoryLifecycle(get_cloud_store(), graph_db, get_profile_service())
++
++
+ # =============================================================================
+ # Contract
+ # =============================================================================
+@@ -941,6 +949,11 @@ def get_profile(req: ProfileQueryRequest):
+     return cloud_handler.handle_profile_query(req, get_profile_service())
+ 
+ 
++router.include_router(create_profile_memory_router(get_profile_service))
++
++
++router.include_router(create_lifecycle_router(get_memory_lifecycle))
++
+ # Cloud-contract facade: cloud paths at the root, so they are not added under /product.
+ # `include_router` would prepend this router's `/product` prefix, hence the direct extend.
+ router.routes.extend(cloud_router.routes)
+diff --git a/src/memos/api/server_api.py b/src/memos/api/server_api.py
+index fb9f55b..eb6e704 100644
+--- a/src/memos/api/server_api.py
++++ b/src/memos/api/server_api.py
+@@ -33,8 +33,15 @@ logger.info(
+ 
+ @asynccontextmanager
+ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+-    yield
+-    shutdown_components(server_router_module.components)
++    from memos.api.memory_lifecycle import LifecycleWorker
++
++    worker = LifecycleWorker(server_router_module.get_memory_lifecycle)
++    worker.start()
++    try:
++        yield
++    finally:
++        worker.stop()
++        shutdown_components(server_router_module.components)
+ 
+ 
+ app = FastAPI(
+diff --git a/src/memos/embedders/universal_api.py b/src/memos/embedders/universal_api.py
+index 22962e7..f2443cc 100644
+--- a/src/memos/embedders/universal_api.py
++++ b/src/memos/embedders/universal_api.py
+@@ -59,7 +59,10 @@ class UniversalAPIEmbedder(BaseEmbedder):
+     @staticmethod
+     def _build_embedding_kwargs(model: str, texts: list[str], embedding_dims: int | None) -> dict:
+         kwargs = {"model": model, "input": texts}
+-        if embedding_dims is not None:
++        # BGE-M3 returns 1024 dimensions natively; some providers reject the
++        # dimensions parameter even when it requests that same native size.
++        native_bge_dims = model in {"BAAI/bge-m3", "Pro/BAAI/bge-m3"} and embedding_dims == 1024
++        if embedding_dims is not None and not native_bge_dims:
+             kwargs["dimensions"] = embedding_dims
+         return kwargs
+ 
+diff --git a/src/memos/mem_reader/multi_modal_struct.py b/src/memos/mem_reader/multi_modal_struct.py
+index 6b7fce6..bacf9ba 100644
+--- a/src/memos/mem_reader/multi_modal_struct.py
++++ b/src/memos/mem_reader/multi_modal_struct.py
+@@ -11,6 +11,7 @@ from memos.configs.mem_reader import MultiModalStructMemReaderConfig
+ from memos.context.context import ContextThreadPoolExecutor
+ from memos.llms.thinking import disable_thinking
+ from memos.mem_reader.custom_extract import apply_custom_extract_prompt
++from memos.mem_reader.prompt_config import current_base_extract_prompt
+ from memos.mem_reader.read_multi_modal import MultiModalParser, detect_lang
+ from memos.mem_reader.read_multi_modal.base import _derive_key
+ from memos.mem_reader.read_pref_memory.process_preference_memory import process_preference_fine
+@@ -481,7 +482,7 @@ class MultiModalStructMemReader(SimpleStructMemReader):
+             examples = ""
+             prompt = template.replace("{chunk_text}", mem_str)
+         else:
+-            template = PROMPT_DICT["chat"][lang]
++            template = current_base_extract_prompt() or PROMPT_DICT["chat"][lang]
+             examples = PROMPT_DICT["chat"][f"{lang}_example"]
+             prompt = template.replace("${conversation}", mem_str)
+ 
+@@ -517,6 +518,14 @@ class MultiModalStructMemReader(SimpleStructMemReader):
+         try:
+             response_text = self.llm.generate(messages)
+             response_json = parse_json_result(response_text)
++            # The prompt debugger accepts both spellings; runtime must not
++            # silently drop a valid extraction returned with the underscore key.
++            if (
++                isinstance(response_json, dict)
++                and "memory list" not in response_json
++                and isinstance(response_json.get("memory_list"), list)
++            ):
++                response_json["memory list"] = response_json["memory_list"]
+         except Exception as e:
+             logger.error(f"[LLM] Exception during chat generation: {e}")
+             response_json = {
+@@ -1087,7 +1096,7 @@ class MultiModalStructMemReader(SimpleStructMemReader):
+         def known_ids(ids: list[str]) -> set[str]:
+             try:
+                 return stored(ids)
+-            except Exception as e:  # noqa: BLE001 - a failed lookup only costs a re-embed
++            except Exception as e:
+                 logger.warning(f"[MultiModalStruct] tool schema lookup failed: {e}")
+                 return set()
+ 
+@@ -1095,7 +1104,7 @@ class MultiModalStructMemReader(SimpleStructMemReader):
+             return self.multi_modal_parser.system_parser.tool_schema_items(
+                 scene_data_info, info, existing_ids=known_ids, **kwargs
+             )
+-        except Exception as e:  # noqa: BLE001 - schemas are an extra, never fail the add
++        except Exception as e:
+             logger.warning(f"[MultiModalStruct] tool schema extraction failed: {e}")
+             return []
+ 
+diff --git a/src/memos/multi_mem_cube/composite_cube.py b/src/memos/multi_mem_cube/composite_cube.py
+index f4fa825..83649f2 100644
+--- a/src/memos/multi_mem_cube/composite_cube.py
++++ b/src/memos/multi_mem_cube/composite_cube.py
+@@ -5,6 +5,7 @@ from dataclasses import dataclass
+ from typing import TYPE_CHECKING, Any
+ 
+ from memos.context.context import ContextThreadPoolExecutor
++from memos.mem_reader.prompt_config import use_project_extract_prompt
+ from memos.multi_mem_cube.views import MemCubeView
+ from memos.utils import timed_stage
+ 
+@@ -38,7 +39,8 @@ class CompositeCubeView(MemCubeView):
+                     idx + 1,
+                     cube_count,
+                 )
+-                results = view.add_memories(add_req)
++                with use_project_extract_prompt(view.cube_id):
++                    results = view.add_memories(add_req)
+                 all_results.extend(results)
+ 
+         return all_results
+@@ -53,7 +55,8 @@ class CompositeCubeView(MemCubeView):
+                 idx + 1,
+                 len(self.cube_views),
+             )
+-            all_results.extend(view.extract_memories(add_req))
++            with use_project_extract_prompt(view.cube_id):
++                all_results.extend(view.extract_memories(add_req))
+         return all_results
+ 
+     def search_memories(self, search_req: APISearchRequest) -> dict[str, Any]:
+diff --git a/tests/api/test_cloud_facade.py b/tests/api/test_cloud_facade.py
+index 0e9e52c..298b0ec 100644
+--- a/tests/api/test_cloud_facade.py
++++ b/tests/api/test_cloud_facade.py
+@@ -191,6 +191,12 @@ def test_view_budget_uses_the_requested_top_k_not_the_dedup_widened_one():
+         }
+ 
+     class Cube:
++        def get_node(self, identifier, **kwargs):
++            return {
++                "id": identifier,
++                "metadata": {"status": "activated", "user_name": kwargs["user_name"]},
++            }
++
+         def search_memories(self, req):
+             # text_mem is capped at top_k by MMR, pref_mem at pref_top_k, so the
+             # candidates before the shared budget are 2 + 4 = 6 > top_k.
+@@ -211,7 +217,7 @@ def test_view_budget_uses_the_requested_top_k_not_the_dedup_widened_one():
+ 
+     handler = object.__new__(SearchHandler)
+     handler.logger = SimpleNamespace(info=lambda *a, **k: None, warning=lambda *a, **k: None)
+-    handler.deps = SimpleNamespace(reranker=None, graph_db=None, searcher=None, llm=None)
++    handler.deps = SimpleNamespace(reranker=None, graph_db=Cube(), searcher=None, llm=None)
+     handler._build_cube_view = lambda req, searcher=None: Cube()
+     request = APISearchRequest(user_id="u1", readable_cube_ids=["c"], query="q", top_k=2)
+     request._budget_across_views = True
+diff --git a/tests/api/test_memory_handler_get_views.py b/tests/api/test_memory_handler_get_views.py
+index e1814e1..a202c5a 100644
+--- a/tests/api/test_memory_handler_get_views.py
++++ b/tests/api/test_memory_handler_get_views.py
+@@ -38,3 +38,41 @@ def test_memory_views_split_events_and_narrow_by_agent():
+     assert calls[1]["memory_type"] == ["EventMemory"]
+     assert calls[0]["filter"] == {"tags": {"contains": "x"}, "agent_id": {"in": ["a1", "a2"]}}
+     assert calls[0]["page"] == 1 and calls[0]["page_size"] == 10
++
++
++def test_cloud_status_field_overrides_listed_statuses():
++    """An explicit ``status`` list narrows the listing; e.g. dashboards ask for activated-only."""
++    calls = []
++    request = GetMemoryRequest(
++        mem_cube_id="c1",
++        include_memory_view=["detail_factual"],
++        status=["activated"],
++    )
++
++    memory_handler.handle_get_memories(request, _cube(calls))
++
++    assert calls[0]["status"] == ["activated"]
++
++
++def test_cloud_status_none_keeps_listed_statuses():
++    """Omitting ``status`` keeps the historical LISTED_STATUSES behaviour (backward compatible)."""
++    calls = []
++    request = GetMemoryRequest(mem_cube_id="c1", include_memory_view=["detail_factual"])
++
++    memory_handler.handle_get_memories(request, _cube(calls))
++
++    assert calls[0]["status"] == memory_handler.LISTED_STATUSES
++
++
++def test_explicit_event_types_support_combined_filters_without_changing_legacy_default():
++    calls = []
++    request = GetMemoryRequest(
++        mem_cube_id="c1",
++        include_memory_view=["event"],
++        status=["activated"],
++        event_memory_types=["EventMemory", "Context", "InsightMemory"],
++        filter={"and": [{"owner_type": "user"}, {"created_at": {"gte": "2026-01-01"}}]},
++    )
++    memory_handler.handle_get_memories(request, _cube(calls))
++    assert calls[0]["memory_type"] == ["EventMemory", "Context", "InsightMemory"]
++    assert calls[0]["filter"] == request.filter
+diff --git a/tests/api/test_product_models.py b/tests/api/test_product_models.py
+index c2b874e..efefbb6 100644
+--- a/tests/api/test_product_models.py
++++ b/tests/api/test_product_models.py
+@@ -14,7 +14,18 @@ import pytest
+ 
+ from pydantic import ValidationError
+ 
+-from memos.api.product_models import APIADDRequest, APISearchRequest
++from memos.api.product_models import APIADDRequest, APISearchRequest, GetMemoryRequest
++
++
++def test_get_memory_request_status_accepts_list_or_none():
++    """Cloud contract: status is an optional list[str] filter, None keeps legacy behaviour."""
++    assert GetMemoryRequest(mem_cube_id="c1", status=["activated"]).status == ["activated"]
++    assert GetMemoryRequest(mem_cube_id="c1").status is None
++
++
++def test_get_memory_request_status_rejects_bare_string():
++    with pytest.raises(ValidationError):
++        GetMemoryRequest(mem_cube_id="c1", status="activated")
+ 
+ 
+ def test_search_top_k_defaults_to_cloud_cap():
+@@ -32,7 +43,6 @@ def test_search_top_k_accepts_25():
+     assert APISearchRequest(query="q", user_id="u", top_k=25).top_k == 25
+ 
+ 
+-
+ def test_add_request_exposes_model_level_example():
+     """APIADDRequest must ship a model-level example for the interactive docs."""
+     schema = APIADDRequest.model_json_schema()
+diff --git a/tests/api/test_prompt_config.py b/tests/api/test_prompt_config.py
+index 8320f8f..2e871e6 100644
+--- a/tests/api/test_prompt_config.py
++++ b/tests/api/test_prompt_config.py
+@@ -190,3 +190,37 @@ def test_saved_prompt_replaces_the_reader_template(tmp_path, monkeypatch):
+     with use_project_extract_prompt("cube-reader"):
+         reader._get_llm_response("用户提到昨天的会议", None)
+     assert seen[-1].startswith(simple_struct.PROMPT_DICT["chat"]["zh"][:20])
++
++
++@pytest.mark.parametrize(
++    "payload",
++    [
++        {"memory list": [], "summary": "No durable facts"},
++        {"memory_list": [], "summary": "No durable facts"},
++        {"memory list": [], "memory_list": [{"value": "ignore fallback when primary is valid"}]},
++    ],
++)
++def test_debug_valid_empty_memory_list_stays_empty(client, mocked_llm, payload):
++    import json
++
++    mocked_llm.generate.return_value = json.dumps(payload)
++    result = client.post(
++        "/product/debug_extract",
++        json={"mem_cube_id": CUBE, "messages": [{"role": "user", "content": "hello"}]},
++    )
++    assert result.status_code == 200
++    assert result.json()["data"]["results"] == []
++
++
++@pytest.mark.parametrize(
++    "payload",
++    ["plain unstructured answer", '{"summary":"wrong shape"}', '{"memory list":"not a list"}'],
++)
++def test_debug_invalid_structure_is_explicit_raw(client, mocked_llm, payload):
++    mocked_llm.generate.return_value = payload
++    result = client.post(
++        "/product/debug_extract",
++        json={"mem_cube_id": CUBE, "messages": [{"role": "user", "content": "hello"}]},
++    )
++    assert result.status_code == 200
++    assert result.json()["data"]["results"] == [{"type": "raw", "content": payload}]
+diff --git a/tests/api/test_search_time_aware.py b/tests/api/test_search_time_aware.py
+index d165457..89e34d1 100644
+--- a/tests/api/test_search_time_aware.py
++++ b/tests/api/test_search_time_aware.py
+@@ -14,9 +14,20 @@ from memos.search import time_understanding
+ class FakeCube:
+     def __init__(self, *responses):
+         self.responses = list(responses)
++        self.current = {
++            m["id"]: {**m, "metadata": {**m["metadata"], "user_name": group["cube_id"]}}
++            for response in responses
++            for groups in response.values()
++            for group in groups
++            for m in group.get("memories", [])
++        }
+         self.filters = []
+         self.top_ks = []
+ 
++    def get_node(self, identifier, **kwargs):
++        row = self.current.get(identifier)
++        return row if row and row["metadata"]["user_name"] == kwargs.get("user_name") else None
++
+     def search_memories(self, req):
+         self.filters.append(req.filter)
+         self.top_ks.append(req.top_k)
+@@ -67,7 +78,7 @@ def _bucket(*memories, **other):
+ def _handler(cube, llm=None):
+     handler = object.__new__(SearchHandler)
+     handler.logger = SimpleNamespace(info=lambda *a, **k: None, warning=lambda *a, **k: None)
+-    handler.deps = SimpleNamespace(reranker=None, graph_db=None, searcher=None, llm=llm)
++    handler.deps = SimpleNamespace(reranker=None, graph_db=cube, searcher=None, llm=llm)
+     handler._build_cube_view = lambda req, searcher=None: cube
+     return handler
+ 
+diff --git a/tests/api/test_search_time_history.py b/tests/api/test_search_time_history.py
+index 1857d60..d71814e 100644
+--- a/tests/api/test_search_time_history.py
++++ b/tests/api/test_search_time_history.py
+@@ -31,8 +31,19 @@ def _bucket(*memories):
+ class FakeCube:
+     def __init__(self, *responses):
+         self.responses = list(responses)
++        self.current = {
++            m["id"]: {**m, "metadata": {**m["metadata"], "user_name": group["cube_id"]}}
++            for response in responses
++            for groups in response.values()
++            for group in groups
++            for m in group.get("memories", [])
++        }
+         self.filters = []
+ 
++    def get_node(self, identifier, **kwargs):
++        row = self.current.get(identifier)
++        return row if row and row["metadata"]["user_name"] == kwargs.get("user_name") else None
++
+     def search_memories(self, req):
+         self.filters.append(req.filter)
+         return self.responses.pop(0)
+@@ -41,7 +52,7 @@ class FakeCube:
+ def _handler(cube):
+     handler = object.__new__(SearchHandler)
+     handler.logger = SimpleNamespace(info=lambda *a, **k: None, warning=lambda *a, **k: None)
+-    handler.deps = SimpleNamespace(reranker=None, graph_db=None, searcher=None)
++    handler.deps = SimpleNamespace(reranker=None, graph_db=cube, searcher=None)
+     handler._build_cube_view = lambda req, searcher=None: cube
+     return handler
+ 
+diff --git a/tests/embedders/test_universal_api.py b/tests/embedders/test_universal_api.py
+index 7d897eb..b543dad 100644
+--- a/tests/embedders/test_universal_api.py
++++ b/tests/embedders/test_universal_api.py
+@@ -47,6 +47,25 @@ def _bad_request_error(
+ 
+ 
+ class TestUniversalAPIEmbedderDimensions:
++    @pytest.mark.parametrize("model", ["BAAI/bge-m3", "Pro/BAAI/bge-m3"])
++    @patch("memos.embedders.universal_api.OpenAIClient")
++    def test_bge_m3_works_with_fixed_dimension_provider(self, mock_openai_client, model):
++        response = _mock_embedding_response(dims=1024)
++
++        def create_embedding(**kwargs):
++            if "dimensions" in kwargs:
++                raise _bad_request_error("The parameter is invalid. Please check again.")
++            return response
++
++        mock_openai_client.return_value.embeddings.create.side_effect = create_embedding
++        embedder = UniversalAPIEmbedder(_make_config(model_name_or_path=model, embedding_dims=1024))
++
++        vectors = embedder.embed(["memory connectivity check"])
++
++        assert len(vectors) == 1
++        assert len(vectors[0]) == 1024
++        mock_openai_client.return_value.embeddings.create.assert_called_once()
++
+     def test_build_embedding_kwargs_no_dims(self):
+         kwargs = UniversalAPIEmbedder._build_embedding_kwargs(
+             "text-embedding-3-large", ["hello"], None
+@@ -81,7 +100,8 @@ class TestUniversalAPIEmbedderDimensions:
+         assert config["config"]["embedding_dims"] == 1536
+ 
+     @patch("memos.embedders.universal_api.OpenAIClient")
+-    def test_embed_passes_embedding_dims_to_api(self, mock_openai_client):
++    def test_embed_passes_embedding_dims_to_api(self, mock_openai_client, monkeypatch):
++        monkeypatch.delenv("MOS_EMBEDDER_TIMEOUT", raising=False)
+         response = _mock_embedding_response(vectors_per_text=1, dims=2)
+         mock_create = MagicMock(return_value=response)
+         mock_openai_client.return_value.embeddings.create = mock_create
+@@ -96,7 +116,8 @@ class TestUniversalAPIEmbedderDimensions:
+         assert result == [[0.1, 0.2]]
+ 
+     @patch("memos.embedders.universal_api.OpenAIClient")
+-    def test_embed_without_dims_does_not_pass_dimensions(self, mock_openai_client):
++    def test_embed_without_dims_does_not_pass_dimensions(self, mock_openai_client, monkeypatch):
++        monkeypatch.delenv("MOS_EMBEDDER_TIMEOUT", raising=False)
+         response = _mock_embedding_response(vectors_per_text=1, dims=2)
+         mock_create = MagicMock(return_value=response)
+         mock_openai_client.return_value.embeddings.create = mock_create
+diff --git a/deploy/mcp-gateway/gateway/live_auth.py b/deploy/mcp-gateway/gateway/live_auth.py
+new file mode 100644
+--- /dev/null
++++ b/deploy/mcp-gateway/gateway/live_auth.py
+@@ -0,0 +1,30 @@
++"""Request-time file change detection; no static token cache survives revocation."""
++
++from __future__ import annotations
++
++from typing import TYPE_CHECKING
++
++from anyio import to_thread
++from fastmcp.server.auth import AccessToken, TokenVerifier
++
++
++if TYPE_CHECKING:
++    from .domain.tenants import TenantRegistry
++
++
++class ReloadingTokenVerifier(TokenVerifier):
++    def __init__(self, tenants: TenantRegistry):
++        super().__init__()
++        self._tenants = tenants
++
++    async def verify_token(self, token: str) -> AccessToken | None:
++        tenant = await to_thread.run_sync(self._tenants.authenticate, token)
++        if tenant is None:
++            return None
++        claims = {
++            "client_id": tenant.user_id,
++            "scopes": ["memory"],
++            "user_id": tenant.user_id,
++            "cube_id": tenant.cube_id,
++        }
++        return AccessToken(token=token, client_id=tenant.user_id, scopes=["memory"], claims=claims)
+diff --git a/deploy/mcp-gateway/test_gateway_live_reload.py b/deploy/mcp-gateway/test_gateway_live_reload.py
+new file mode 100644
+--- /dev/null
++++ b/deploy/mcp-gateway/test_gateway_live_reload.py
+@@ -0,0 +1,217 @@
++"""Credential publications become effective on the next authenticated HTTP request."""
++
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import sys
++
++from dataclasses import replace
++from pathlib import Path
++
++import pytest
++
++from starlette.testclient import TestClient
++
++
++sys.path.insert(0, str(Path(__file__).parent))
++
++from gateway.app import build_app
++from gateway.config import settings
++from gateway.domain.tenants import TenantRegistry
++
++
++def publish(path, values):
++    temporary = path.with_suffix(".next")
++    temporary.write_text(json.dumps(values), encoding="utf-8")
++    os.replace(temporary, path)
++
++
++def registry(path):
++    return TenantRegistry.from_sources("env-token:operator", str(path))
++
++
++def test_add_revoke_and_identity_remap(tmp_path):
++    path = tmp_path / "tenants.conf"
++    publish(path, {"first": "alice"})
++    tenants = registry(path)
++    assert tenants.authenticate("first").user_id == "alice"
++    publish(path, {"second": {"user_id": "bob", "cube_id": "team-b"}})
++    assert tenants.authenticate("first") is None
++    assert tenants.authenticate("second").cube_id == "team-b"
++    assert tenants.get("second").user_id == "bob"  # audit shares the live snapshot
++    publish(path, {"second": "carol"})
++    assert tenants.authenticate("second").user_id == "carol"
++    assert tenants.authenticate("env-token").user_id == "operator"
++
++
++@pytest.mark.parametrize("failure", ["invalid", "pending", "missing", "conflict"])
++def test_bad_publication_fails_closed_and_recovers(tmp_path, failure):
++    path = tmp_path / "tenants.conf"
++    publish(path, {"first": "alice"})
++    tenants = registry(path)
++    if failure == "invalid":
++        path.write_text('{"credential-secret":', encoding="utf-8")
++    elif failure == "pending":
++        path.with_name(path.name + ".pending").write_text("pending")
++    elif failure == "missing":
++        path.unlink()
++    else:
++        publish(path, {"env-token": "mallory"})
++    assert tenants.authenticate("first") is None
++    assert tenants.authenticate("credential-secret") is None
++    assert tenants.authenticate("env-token").user_id == "operator"
++    path.with_name(path.name + ".pending").unlink(missing_ok=True)
++    publish(path, {"second": "bob"})
++    assert tenants.authenticate("second").user_id == "bob"
++    assert tenants.authenticate("first") is None
++
++
++def test_unchanged_file_is_not_reparsed_and_same_mtime_replacement_detected(tmp_path, monkeypatch):
++    import gateway.domain.tenants as module
++
++    path = tmp_path / "tenants.conf"
++    publish(path, {"first": "alice"})
++    tenants = registry(path)
++    original = module.parse_tenants
++    calls = []
++
++    def parse(value):
++        calls.append(True)
++        return original(value)
++
++    monkeypatch.setattr(module, "parse_tenants", parse)
++    for _ in range(10):
++        assert tenants.authenticate("first")
++    assert calls == []
++    timestamp = path.stat().st_mtime_ns
++    publish(path, {"other": "bobby"})
++    os.utime(path, ns=(timestamp, timestamp))
++    assert tenants.authenticate("other").user_id == "bobby"
++    assert calls == [True]
++
++
++def test_file_read_failure_revokes_cached_file_keys(tmp_path, monkeypatch):
++    import gateway.domain.tenants as module
++
++    path = tmp_path / "tenants.conf"
++    publish(path, {"first": "alice"})
++    tenants = registry(path)
++    publish(path, {"second": "bob"})
++    original = module.load_tenants_file
++
++    def denied(*args, **kwargs):
++        raise PermissionError("sensitive source must not escape")
++
++    monkeypatch.setattr(module, "load_tenants_file", denied)
++    assert tenants.authenticate("first") is None
++    assert tenants.authenticate("env-token")
++    monkeypatch.setattr(module, "load_tenants_file", original)
++    assert tenants.authenticate("second")
++
++
++def test_publication_lock_does_not_block_auth_and_recovers(tmp_path):
++    from gateway.domain.tenants import _manifest_lock
++
++    path = tmp_path / "tenants.conf"
++    publish(path, {"first": "alice"})
++    tenants = registry(path)
++    marker = path.with_name(path.name + ".pending")
++    with _manifest_lock(path):
++        marker.write_text("pending")
++        publish(path, {"second": "bob"})
++        assert tenants.authenticate("first") is None
++        assert tenants.authenticate("second") is None
++        assert tenants.authenticate("env-token")
++        marker.unlink()
++    assert tenants.authenticate("second")
++
++
++def test_change_between_read_and_stat_never_accepts_mixed_publication(tmp_path, monkeypatch):
++    import gateway.domain.tenants as module
++
++    path = tmp_path / "tenants.conf"
++    publish(path, {"first": "alice"})
++    tenants = registry(path)
++    original = module.load_tenants_file
++    publish(path, {"second": "bob"})
++
++    def racing(*args, **kwargs):
++        loaded = original(*args, **kwargs)
++        publish(path, {"third": "carol"})
++        return loaded
++
++    monkeypatch.setattr(module, "load_tenants_file", racing)
++    assert tenants.authenticate("second") is None
++    monkeypatch.setattr(module, "load_tenants_file", original)
++    assert tenants.authenticate("third").user_id == "carol"
++
++
++def test_empty_startup_stays_authenticated_and_live_http_rechecks_each_request(tmp_path):
++    path = tmp_path / "tenants.conf"
++    publish(path, {})
++    app = build_app(
++        replace(
++            settings,
++            tenants_raw="",
++            tenants_file=str(path),
++            call_log_dir=str(tmp_path / "calls"),
++            audit_log_dir=str(tmp_path / "audit"),
++        )
++    )
++    rpc = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
++    with TestClient(app.mcp.http_app(middleware=[app.http_middleware()])) as web:
++
++        def request(token):
++            return web.post(
++                "/mcp",
++                json=rpc,
++                headers={
++                    "Authorization": "Bearer " + token,
++                    "Accept": "application/json, text/event-stream",
++                },
++            )
++
++        assert web.post("/mcp", json=rpc).status_code == 401
++        assert request("first").status_code == 401
++        publish(path, {"first": "alice"})
++        assert request("first").status_code == 200
++        publish(path, {})
++        assert request("first").status_code == 401
++        publish(path, {"second": "bob"})
++        assert request("second").status_code == 200
++        assert request("first").status_code == 401
++
++
++def test_auth_disk_work_does_not_block_event_loop(tmp_path, monkeypatch):
++    import threading
++
++    from gateway.live_auth import ReloadingTokenVerifier
++
++    path = tmp_path / "tenants.conf"
++    publish(path, {"first": "alice"})
++    tenants = registry(path)
++    entered, released = threading.Event(), threading.Event()
++    original = tenants.authenticate
++
++    def slow(token):
++        entered.set()
++        assert released.wait(3)
++        return original(token)
++
++    monkeypatch.setattr(tenants, "authenticate", slow)
++
++    async def run():
++        task = asyncio.create_task(ReloadingTokenVerifier(tenants).verify_token("first"))
++        for _ in range(100):
++            if entered.is_set():
++                break
++            await asyncio.sleep(0.001)
++        try:
++            assert entered.is_set() and not task.done()
++        finally:
++            released.set()
++        assert (await task).claims["user_id"] == "alice"
++
++    asyncio.run(run())
+diff --git a/deploy/mcp-gateway/test_gateway_tenants_file.py b/deploy/mcp-gateway/test_gateway_tenants_file.py
+new file mode 100644
+--- /dev/null
++++ b/deploy/mcp-gateway/test_gateway_tenants_file.py
+@@ -0,0 +1,121 @@
++#!/usr/bin/env python3
++"""Task 14 RED：网关侧 tenants.conf（dashboard 合成下发）的读取与合并。
++
++不依赖 fastmcp、不起服务。跑法：
++
++    python test_gateway_tenants_file.py
++"""
++
++from __future__ import annotations
++
++import pathlib
++import tempfile
++import unittest
++
++from gateway.domain.tenants import load_tenants_file, merge_tenants, parse_tenants
++
++
++class LoadTenantsFile(unittest.TestCase):
++    def setUp(self):
++        self.tmp = tempfile.TemporaryDirectory()
++        self.dir = pathlib.Path(self.tmp.name)
++
++    def tearDown(self):
++        self.tmp.cleanup()
++
++    def write(self, text, name="tenants.conf"):
++        path = self.dir / name
++        path.write_text(text, encoding="utf-8")
++        return path
++
++    def test_missing_file_is_empty(self):
++        self.assertEqual(load_tenants_file(self.dir / "absent.conf"), {})
++
++    def test_file_json_same_shape_as_env(self):
++        path = self.write('{"tok-a": {"user_id": "a", "cube_id": "c"}, "tok-b": "b"}')
++        parsed = load_tenants_file(path)
++        self.assertEqual(parsed["tok-a"].user_id, "a")
++        self.assertEqual(parsed["tok-a"].cube_id, "c")
++        self.assertEqual(parsed["tok-b"].user_id, "b")
++        self.assertEqual(parsed["tok-b"].cube_id, "b")
++
++    def test_bad_json_raises_valueerror(self):
++        path = self.write("{not json")
++        with self.assertRaises(ValueError):
++            load_tenants_file(path)
++
++    def test_merge_disjoint_sources(self):
++        base = parse_tenants("env-tok:alice")
++        path = self.write('{"file-tok": {"user_id": "bob", "cube_id": "bob"}}')
++        merged = merge_tenants(base, load_tenants_file(path), extra_source="tenants.conf")
++        self.assertEqual(merged["env-tok"].user_id, "alice")
++        self.assertEqual(merged["file-tok"].user_id, "bob")
++        self.assertEqual(len(merged), 2)
++
++    def test_merge_conflict_names_both_sources_without_token_plaintext(self):
++        base = parse_tenants("same-tok:alice")
++        path = self.write('{"same-tok": {"user_id": "mallory", "cube_id": "mallory"}}')
++        with self.assertRaises(ValueError) as caught:
++            merge_tenants(base, load_tenants_file(path), extra_source="tenants.conf")
++        message = str(caught.exception)
++        self.assertIn("MEMOS_TENANTS", message)
++        self.assertIn("tenants.conf", message)
++        self.assertNotIn("same-tok", message)
++
++    def test_merge_identical_entry_dedupes(self):
++        base = parse_tenants("same-tok:alice")
++        path = self.write('{"same-tok": {"user_id": "alice", "cube_id": "alice"}}')
++        merged = merge_tenants(base, load_tenants_file(path), extra_source="tenants.conf")
++        self.assertEqual(len(merged), 1)
++        self.assertEqual(merged["same-tok"].user_id, "alice")
++
++    def test_invalid_config_never_exposes_token(self):
++        token = "sk-" + "x" * 48
++        for raw in ('{"' + token + '":{}}', token, '{"' + token + '":[1]}'):
++            try:
++                parse_tenants(raw)
++            except ValueError as error:
++                self.assertFalse(token in str(error))
++            else:
++                self.fail("Malformed credential configuration was accepted")
++
++    def test_pending_manifest_is_rejected(self):
++        path = self.write("{}")
++        path.with_name(path.name + ".pending").write_text("pending")
++        with self.assertRaises(ValueError):
++            load_tenants_file(path)
++
++    def test_reader_waits_for_publication_lock(self):
++        import threading
++
++        from gateway.domain.tenants import _manifest_lock
++
++        path = self.write("{}")
++        started, done = threading.Event(), threading.Event()
++        failures = []
++
++        def read():
++            started.set()
++            try:
++                load_tenants_file(path)
++            except Exception as error:
++                failures.append(type(error).__name__)
++            finally:
++                done.set()
++
++        with _manifest_lock(path):
++            reader = threading.Thread(target=read)
++            reader.start()
++            self.assertTrue(started.wait(2))
++            self.assertFalse(done.wait(0.1))
++        reader.join(4)
++        self.assertTrue(done.is_set())
++        self.assertEqual(failures, [])
++
++    def test_legacy_null_cube_still_defaults_to_user(self):
++        parsed = parse_tenants('{"legacy": {"user_id":"a", "cube_id":null}}')
++        self.assertEqual(parsed["legacy"].cube_id, "a")
++
++
++if __name__ == "__main__":
++    unittest.main(verbosity=2)
+diff --git a/src/memos/api/control_lock.py b/src/memos/api/control_lock.py
+new file mode 100644
+--- /dev/null
++++ b/src/memos/api/control_lock.py
+@@ -0,0 +1,86 @@
++"""Crash-released control locks shared across workers using the metadata backend."""
++
++import hashlib
++import os
++import threading
++import time
++import weakref
++
++from collections.abc import Callable, Iterator
++from contextlib import contextmanager
++from functools import wraps
++
++from memos.api.cloud_store import JsonMetadataStore, MetadataStore, Neo4jMetadataStore
++
++
++_registry_guard = threading.Lock()
++_registry = weakref.WeakValueDictionary()
++
++
++@contextmanager
++def control_lock(store: MetadataStore, key: str) -> Iterator[None]:
++    digest = hashlib.sha256(key.encode()).hexdigest()
++    identity = (str(getattr(store, "root", "neo4j")), digest)
++    with _registry_guard:
++        lock = _registry.setdefault(identity, threading.RLock())
++    with lock:
++        if isinstance(store, Neo4jMetadataStore):
++            if not getattr(store, "_control_constraint_ready", False):
++                with store._session() as session:
++                    session.run(
++                        "CREATE CONSTRAINT cloud_entity_id_unique IF NOT EXISTS "
++                        "FOR (n:CloudEntity) REQUIRE n.entity_id IS UNIQUE"
++                    ).consume()
++                store._control_constraint_ready = True
++            with store._session() as session, session.begin_transaction() as tx:
++                tx.run(
++                    "MERGE (n:CloudEntity {entity_id: $id}) "
++                    "SET n.entity_kind='control_lock', n.lock_version=coalesce(n.lock_version,0)+1",
++                    id="control-lock-" + digest,
++                ).consume()
++                yield
++                # The transaction's exclusive node lock is released even after process death.
++                tx.commit()
++        elif isinstance(store, JsonMetadataStore):
++            directory = store.root / ".control-locks"
++            directory.mkdir(parents=True, exist_ok=True)
++            with (directory / digest).open("a+b") as handle:
++                handle.write(b"0")
++                handle.flush()
++                if os.name == "nt":
++                    import msvcrt
++
++                    deadline = time.monotonic() + 60
++                    while True:
++                        try:
++                            handle.seek(0)
++                            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
++                            break
++                        except OSError:
++                            if time.monotonic() > deadline:
++                                raise TimeoutError("Control lock acquisition timed out") from None
++                            time.sleep(0.02)
++                    try:
++                        yield
++                    finally:
++                        handle.seek(0)
++                        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
++                else:
++                    import fcntl
++
++                    fcntl.flock(handle, fcntl.LOCK_EX)
++                    try:
++                        yield
++                    finally:
++                        fcntl.flock(handle, fcntl.LOCK_UN)
++        else:
++            raise TypeError("Lifecycle requires a persistent metadata store with control locks")
++
++
++def serialized_profile_write(method: Callable) -> Callable:
++    @wraps(method)
++    def wrapped(self, *args, **kwargs):
++        with control_lock(self.store, "profile-writes"):
++            return method(self, *args, **kwargs)
++
++    return wrapped
+diff --git a/src/memos/api/memory_lifecycle.py b/src/memos/api/memory_lifecycle.py
+new file mode 100644
+--- /dev/null
++++ b/src/memos/api/memory_lifecycle.py
+@@ -0,0 +1,261 @@
++"""Durable, idempotent graph/vector transitions; no best-effort success."""
++
++import hashlib
++import json
++import threading
++
++from collections.abc import Callable
++from datetime import datetime, timezone
++from typing import Any
++
++from memos.api.cloud_store import MetadataStore
++from memos.api.control_lock import control_lock
++from memos.api.memory_state import read_control_node
++from memos.log import get_logger
++
++
++logger = get_logger(__name__)
++INTENT_KIND = "memory_lifecycle"
++
++
++class LifecycleError(ValueError):
++    def __init__(self, code: int, message: str):
++        self.code = code
++        super().__init__(message)
++
++
++def now() -> str:
++    return datetime.now(timezone.utc).isoformat()
++
++
++def operation_key(cube: str, operation_id: str) -> str:
++    return "lifecycle-" + hashlib.sha256(json.dumps([cube, operation_id]).encode()).hexdigest()
++
++
++class MemoryLifecycle:
++    def __init__(self, store: MetadataStore, graph: Any, profiles: Any | None = None) -> None:
++        self.store, self.graph, self.profiles = store, graph, profiles
++
++    def transition(
++        self,
++        *,
++        cube: str,
++        memory_id: str,
++        target_status: str,
++        operation_id: str,
++        kind: str = "graph",
++    ) -> dict[str, Any]:
++        if target_status not in ("deleted", "restore") or kind not in ("graph", "profile"):
++            raise LifecycleError(400, "Unsupported lifecycle transition")
++        key = operation_key(cube, operation_id)
++        with (
++            control_lock(self.store, "operation:" + key),
++            control_lock(self.store, self._resource(cube, memory_id, kind)),
++        ):
++            intent = self.store.get(INTENT_KIND, key)
++            if intent:
++                if (intent["memory_id"], intent["requested_status"], intent["kind"]) != (
++                    memory_id,
++                    target_status,
++                    kind,
++                ):
++                    raise LifecycleError(409, "Operation ID already used for different arguments")
++                return (
++                    self._apply(intent) if intent["state"] != "confirmed" else self._public(intent)
++                )
++            # Complete older writes before admitting the opposite operation.
++            for pending in self.store.list(INTENT_KIND, user_name=cube):
++                if (
++                    pending["memory_id"] == memory_id
++                    and pending["kind"] == kind
++                    and pending["state"] != "confirmed"
++                ):
++                    result = self._apply(pending)
++                    if not result["success"]:
++                        raise LifecycleError(409, "Previous transition is still pending")
++            if kind == "profile":
++                current = self.profiles.lifecycle_field(cube, memory_id)
++                metadata = current[1] if current else None
++            else:
++                node = read_control_node(self.graph, memory_id, cube)
++                metadata = node.get("metadata") if node else None
++            if metadata is None or (kind == "graph" and metadata.get("user_name") != cube):
++                raise LifecycleError(404, "Memory not found in this cube")
++            status = metadata.get("status", "activated" if kind == "profile" else None)
++            if target_status == "deleted":
++                if status != "activated":
++                    raise LifecycleError(409, "Only activated memories may be deleted")
++                target, previous = "deleted", status
++            else:
++                previous = metadata.get("previous_status")
++                if status != "deleted" or previous != "activated":
++                    raise LifecycleError(409, "Memory is not recoverable")
++                target = previous
++            intent = {
++                "entity_id": key,
++                "user_name": cube,
++                "operation_id": operation_id,
++                "memory_id": memory_id,
++                "kind": kind,
++                "requested_status": target_status,
++                "target_status": target,
++                "previous_status": previous,
++                "state": "pending",
++                "phase": "prepared",
++                "attempts": 0,
++                "created_at": now(),
++                "updated_at": now(),
++            }
++            self.store.put(INTENT_KIND, intent)  # Must succeed BEFORE changing memory.
++            return self._apply(intent)
++
++    @staticmethod
++    def _resource(cube, memory_id, kind):
++        # Profile writers and transitions serialize complete instance documents.
++        return "profile-writes" if kind == "profile" else "memory:" + json.dumps([cube, memory_id])
++
++    def _apply(self, intent):
++        if intent["state"] == "confirmed":
++            return self._public(intent)
++        intent["attempts"] += 1
++        intent["updated_at"] = now()
++        try:
++            cube, identifier, target = (
++                intent["user_name"],
++                intent["memory_id"],
++                intent["target_status"],
++            )
++            fields = {
++                "status": target,
++                "previous_status": intent["previous_status"],
++                "deleted_at": intent["created_at"] if target == "deleted" else "",
++                "lifecycle_operation_id": intent["operation_id"],
++            }
++            if intent["kind"] == "profile":
++                self.profiles.apply_field_lifecycle(cube, identifier, fields)
++                found = self.profiles.lifecycle_field(cube, identifier)
++                if not found or found[1].get("status") != target:
++                    raise OSError("Profile status verification failed")
++                intent["vector_state"] = "not_applicable"
++            else:
++                node = read_control_node(self.graph, identifier, cube)
++                if not node or node["metadata"].get("user_name") != cube:
++                    raise OSError("Memory vanished during transition")
++                self._write_graph(identifier, cube, fields)
++                intent["phase"] = "graph_written"
++                self.store.put(INTENT_KIND, intent)
++                vector = getattr(self.graph, "vec_db", None)
++                if vector is None:
++                    raise OSError("Vector backend cannot be verified")
++                point = vector.get_by_id(identifier)  # Exceptions are NOT absence.
++                if point is None:
++                    if node["metadata"].get("vector_sync") != "not_indexed":
++                        raise OSError("Indexed vector point missing or indexing state unknown")
++                    intent["vector_state"] = "explicitly_not_indexed"
++                else:
++                    payload = point.payload or {}
++                    if payload.get("user_name") != cube:
++                        raise OSError("Vector ownership mismatch")
++                    vector.update(identifier, {"id": identifier, "payload": fields})
++                    verified = vector.get_by_id(identifier)
++                    if (
++                        not verified
++                        or (verified.payload or {}).get("status") != target
++                        or (verified.payload or {}).get("user_name") != cube
++                    ):
++                        raise OSError("Vector status verification failed")
++                    intent["vector_state"] = "confirmed"
++                current = read_control_node(self.graph, identifier, cube)
++                if not current or current["metadata"].get("status") != target:
++                    raise OSError("Graph status verification failed")
++            intent["state"], intent["phase"] = "confirmed", "confirmed"
++            intent.pop("last_error", None)
++        except Exception as exc:
++            intent["state"] = "pending"
++            intent["last_error"] = type(exc).__name__  # Never persist bodies/credentials.
++            logger.warning("Lifecycle transition pending (%s)", type(exc).__name__)
++        self.store.put(INTENT_KIND, intent)
++        return self._public(intent)
++
++    def get_operation(self, cube: str, operation_id: str) -> dict[str, Any] | None:
++        record = self.store.get(INTENT_KIND, operation_key(cube, operation_id))
++        return self._public(record) if record and record.get("user_name") == cube else None
++
++    def _write_graph(self, identifier, cube, fields):
++        driver = getattr(self.graph, "driver", None)
++        if driver is None:
++            # Backend-independent test doubles; production deployment uses Neo4j.
++            self.graph.update_node(identifier, dict(fields), user_name=cube)
++            return
++        # Do not invoke update_node's best-effort vector side effect: ownership
++        # and vector confirmation belong to this controlled transition.
++        with driver.session(database=self.graph.db_name) as session:
++            record = session.run(
++                "MATCH (n:Memory {id:$id, user_name:$cube}) SET n += $fields RETURN n.id AS id",
++                id=identifier,
++                cube=cube,
++                fields=fields,
++            ).single()
++            if record is None:
++                raise OSError("Graph lifecycle target not found")
++
++    @staticmethod
++    def _public(intent):
++        return {
++            **{
++                k: intent[k]
++                for k in (
++                    "operation_id",
++                    "memory_id",
++                    "kind",
++                    "target_status",
++                    "state",
++                    "phase",
++                    "attempts",
++                )
++            },
++            "success": intent["state"] == "confirmed",
++            "retryable": intent["state"] != "confirmed",
++            "vector_state": intent.get("vector_state", "unconfirmed"),
++        }
++
++    def reconcile(self) -> int:
++        completed = 0
++        for intent in self.store.list(INTENT_KIND):
++            if intent["state"] == "confirmed":
++                continue
++            try:
++                with control_lock(
++                    self.store,
++                    self._resource(intent["user_name"], intent["memory_id"], intent["kind"]),
++                ):
++                    current = self.store.get(INTENT_KIND, intent["entity_id"])
++                    if current and current["state"] != "confirmed":
++                        completed += int(self._apply(current)["success"])
++            except Exception as exc:
++                logger.warning("Lifecycle reconciliation deferred (%s)", type(exc).__name__)
++        return completed
++
++
++class LifecycleWorker:
++    def __init__(self, factory: Callable[[], MemoryLifecycle], interval: float = 5) -> None:
++        self.factory, self.interval = factory, interval
++        self.stop_event = threading.Event()
++        self.thread = None
++
++    def start(self) -> None:
++        def run():
++            while not self.stop_event.is_set():
++                try:
++                    self.factory().reconcile()
++                except Exception as exc:
++                    logger.warning("Lifecycle worker deferred (%s)", type(exc).__name__)
++                self.stop_event.wait(self.interval)
++
++        self.thread = threading.Thread(target=run, name="memory-lifecycle-reconcile", daemon=True)
++        self.thread.start()
++
++    def stop(self) -> None:
++        self.stop_event.set()
++        if self.thread:
++            self.thread.join(timeout=10)
+diff --git a/src/memos/api/memory_lifecycle_routes.py b/src/memos/api/memory_lifecycle_routes.py
+new file mode 100644
+--- /dev/null
++++ b/src/memos/api/memory_lifecycle_routes.py
+@@ -0,0 +1,90 @@
++"""Trusted control-plane lifecycle routes, separate from ordinary read APIs."""
++
++from collections.abc import Callable
++from typing import Literal
++
++from fastapi import APIRouter
++from pydantic import BaseModel, ConfigDict, Field
++
++from memos.api.memory_lifecycle import LifecycleError, MemoryLifecycle
++from memos.api.memory_state import read_control_node
++from memos.api.product_models import GetMemoryResponse
++
++
++class OperationRequest(BaseModel):
++    model_config = ConfigDict(extra="forbid")
++    mem_cube_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
++    operation_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
++
++
++class LifecycleProbeRequest(BaseModel):
++    model_config = ConfigDict(extra="forbid")
++    mem_cube_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
++    memory_id: str = Field(min_length=1, max_length=1024, pattern=r"^[^\x00-\x1f\x7f]+$")
++    kind: Literal["graph", "profile"] = "graph"
++
++
++class TransitionMemoryRequest(LifecycleProbeRequest):
++    target_status: Literal["deleted", "restore"]
++    operation_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
++
++
++def create_lifecycle_router(factory: Callable[[], MemoryLifecycle]) -> APIRouter:
++    router = APIRouter()
++
++    def execute(request, kind):
++        if request.kind != kind:
++            return GetMemoryResponse(
++                code=400, message="Lifecycle kind does not match route", data=None
++            )
++        try:
++            result = factory().transition(
++                cube=request.mem_cube_id,
++                memory_id=request.memory_id,
++                operation_id=request.operation_id,
++                target_status=request.target_status,
++                kind=kind,
++            )
++            return GetMemoryResponse(message="Lifecycle transition evaluated", data=result)
++        except LifecycleError as exc:
++            return GetMemoryResponse(code=exc.code, message=str(exc), data=None)
++
++    @router.post("/transition_memory", response_model=GetMemoryResponse)
++    def transition_memory(request: TransitionMemoryRequest):
++        return execute(request, "graph")
++
++    @router.post("/transition_profile_memory", response_model=GetMemoryResponse)
++    def transition_profile(request: TransitionMemoryRequest):
++        return execute(request, "profile")
++
++    @router.post("/inspect_memory_lifecycle", response_model=GetMemoryResponse)
++    def inspect(request: LifecycleProbeRequest):
++        service = factory()
++        if request.kind == "profile":
++            found = service.profiles.lifecycle_field(request.mem_cube_id, request.memory_id)
++            metadata = {**found[1], "memory_type": "ProfileMemory"} if found else None
++        else:
++            node = read_control_node(service.graph, request.memory_id, request.mem_cube_id)
++            metadata = node.get("metadata") if node else None
++            if metadata and metadata.get("user_name") != request.mem_cube_id:
++                metadata = None
++        if metadata is None:
++            return GetMemoryResponse(code=404, message="Memory not found", data=None)
++        return GetMemoryResponse(
++            message="Lifecycle state inspected",
++            data={
++                "memory_id": request.memory_id,
++                "status": metadata.get("status", "activated"),
++                "previous_status": metadata.get("previous_status"),
++                "memory_type": metadata.get("memory_type"),
++            },
++        )
++
++    @router.post("/get_memory_operation", response_model=GetMemoryResponse)
++    def operation(request: OperationRequest):
++        return GetMemoryResponse(
++            message="Lifecycle operation retrieved",
++            data=factory().get_operation(request.mem_cube_id, request.operation_id),
++        )
++
++    return router
+diff --git a/src/memos/api/memory_state.py b/src/memos/api/memory_state.py
+new file mode 100644
+--- /dev/null
++++ b/src/memos/api/memory_state.py
+@@ -0,0 +1,22 @@
++"""Read authoritative scoped lifecycle fields before lossy provider parsing."""
++
++from typing import Any
++
++
++def read_control_node(graph: Any, identifier: str, cube: str) -> dict | None:
++    driver = getattr(graph, "driver", None)
++    if driver is None:
++        return graph.get_node(identifier, user_name=cube)
++    with driver.session(database=graph.db_name) as session:
++        row = session.run(
++            "MATCH (n:Memory {id:$id, user_name:$cube}) "
++            "RETURN n.id AS id, n.user_name AS user_name, n.status AS status, "
++            "n.memory_type AS memory_type, n.vector_sync AS vector_sync, "
++            "n.previous_status AS previous_status",
++            id=identifier,
++            cube=cube,
++        ).single()
++        if row is None:
++            return None
++        values = dict(row)
++        return {"id": values.pop("id"), "metadata": values}
+diff --git a/src/memos/api/memory_visibility.py b/src/memos/api/memory_visibility.py
+new file mode 100644
+--- /dev/null
++++ b/src/memos/api/memory_visibility.py
+@@ -0,0 +1,75 @@
++"""Revalidate recall against authoritative state, including during vector outage."""
++
++from typing import Any
++
++from memos.api.memory_state import read_control_node
++from memos.memories.textual.two_stage import two_stage_enabled
++
++
++def confirm_current_memories(results: dict | None, graph: Any, profiles: Any) -> dict | None:
++    allowed = {"activated", "resolving"} if two_stage_enabled() else {"activated"}
++    for tab, groups in (results or {}).items():
++        if not isinstance(groups, list):
++            continue
++        for group in groups:
++            if not isinstance(group, dict) or not isinstance(group.get("memories"), list):
++                continue
++            cube = group.get("cube_id")
++            kept = []
++            for memory in group["memories"]:
++                if (
++                    not isinstance(memory, dict)
++                    or not isinstance(memory.get("id"), str)
++                    or not cube
++                ):
++                    continue
++                if tab == "profile_mem":
++                    current = (
++                        profiles.get_field_row(user_name=cube, memory_id=memory["id"])
++                        if profiles
++                        else None
++                    )
++                    if current:
++                        kept.append(memory)
++                    continue
++                # No exception fallback: the API must fail if graph truth cannot be read.
++                node = read_control_node(graph, memory["id"], cube)
++                if not isinstance(node, dict):
++                    continue
++                metadata = node.get("metadata") or {}
++                status = metadata.get("status")
++                if metadata.get("user_name") != cube:
++                    continue
++                if status in allowed or (
++                    tab == "dream_mem" and status in {"completed", "context_only", "skipped"}
++                ):
++                    memory.setdefault("metadata", {})["status"] = status
++                    kept.append(memory)
++            group["memories"] = kept
++            if "total_nodes" in group:
++                group["total_nodes"] = len(kept)
++    return results
++
++
++def filter_current_subgraph(subgraph: dict, graph: Any, cube: str) -> dict:
++    """Legacy get_all searches also contain graph neighbors and incident edges."""
++    nodes = []
++    for node in subgraph.get("nodes") or []:
++        current = read_control_node(graph, node["id"], cube)
++        metadata = current.get("metadata") if current else None
++        if (
++            metadata
++            and metadata.get("user_name") == cube
++            and metadata.get("status") not in (None, "deleted")
++        ):
++            nodes.append(node)
++    identifiers = {node["id"] for node in nodes}
++    return {
++        "core_id": subgraph.get("core_id") if subgraph.get("core_id") in identifiers else None,
++        "nodes": nodes,
++        "edges": [
++            edge
++            for edge in subgraph.get("edges") or []
++            if edge.get("source") in identifiers and edge.get("target") in identifiers
++        ],
++    }
+diff --git a/src/memos/api/profile_memory_routes.py b/src/memos/api/profile_memory_routes.py
+new file mode 100644
+--- /dev/null
++++ b/src/memos/api/profile_memory_routes.py
+@@ -0,0 +1,52 @@
++"""Read-only profile field routes, testable without initializing a model service."""
++
++from collections.abc import Callable
++
++from fastapi import APIRouter
++
++from memos.api.product_models import (
++    GetMemoryResponse,
++    ProfileMemoryGetRequest,
++    ProfileMemoryListRequest,
++)
++from memos.api.profile import ProfileService
++
++
++def create_profile_memory_router(service_factory: Callable[[], ProfileService]) -> APIRouter:
++    router = APIRouter()
++
++    @router.post("/list_profile_memories", response_model=GetMemoryResponse)
++    def list_profile_memories(request: ProfileMemoryListRequest) -> GetMemoryResponse:
++        rows, total = service_factory().list_field_rows(
++            user_name=request.mem_cube_id,
++            subject_type=request.subject_type,
++            subject_id=request.subject_id,
++            search=request.search,
++            knowledgebase_id=request.knowledgebase_id,
++            start_time=request.start_time.isoformat() if request.start_time else None,
++            end_time=request.end_time.isoformat() if request.end_time else None,
++            end_exclusive=request.end_exclusive,
++            page=request.page,
++            page_size=request.page_size,
++        )
++        return GetMemoryResponse(
++            message="Profile fields retrieved",
++            data={
++                "cube_id": request.mem_cube_id,
++                "memories": rows,
++                "total": total,
++                "page": request.page,
++                "page_size": request.page_size,
++            },
++        )
++
++    @router.post("/get_profile_memory", response_model=GetMemoryResponse)
++    def get_profile_memory(request: ProfileMemoryGetRequest) -> GetMemoryResponse:
++        row = service_factory().get_field_row(
++            user_name=request.mem_cube_id, memory_id=request.memory_id
++        )
++        return GetMemoryResponse(
++            message="Profile field retrieved" if row else "Not found", data=row
++        )
++
++    return router
+diff --git a/tests/api/test_lifecycle_routes.py b/tests/api/test_lifecycle_routes.py
+new file mode 100644
+--- /dev/null
++++ b/tests/api/test_lifecycle_routes.py
+@@ -0,0 +1,49 @@
++from fastapi import FastAPI
++from fastapi.testclient import TestClient
++from test_memory_lifecycle import service
++
++
++def test_routes_transition_probe_restore_operation_and_errors(tmp_path):
++    from memos.api.memory_lifecycle_routes import create_lifecycle_router
++
++    svc = service(tmp_path)
++    app = FastAPI()
++    app.include_router(create_lifecycle_router(lambda: svc), prefix="/product")
++    with TestClient(app) as client:
++        base = {"mem_cube_id": "a", "memory_id": "m1", "kind": "graph"}
++        assert (
++            client.post("/product/inspect_memory_lifecycle", json=base).json()["data"]["status"]
++            == "activated"
++        )
++        request = {**base, "operation_id": "route-delete", "target_status": "deleted"}
++        response = client.post("/product/transition_memory", json=request)
++        assert response.json()["code"] == 200 and response.json()["data"]["success"]
++        assert (
++            client.post(
++                "/product/get_memory_operation",
++                json={"mem_cube_id": "a", "operation_id": "route-delete"},
++            ).json()["data"]["state"]
++            == "confirmed"
++        )
++        assert (
++            client.post(
++                "/product/transition_memory", json={**request, "target_status": "restore"}
++            ).json()["code"]
++            == 409
++        )
++        assert client.post(
++            "/product/transition_memory",
++            json={**request, "operation_id": "restore", "target_status": "restore"},
++        ).json()["data"]["success"]
++        assert (
++            client.post(
++                "/product/inspect_memory_lifecycle", json={**base, "mem_cube_id": "b"}
++            ).json()["code"]
++            == 404
++        )
++        assert (
++            client.post(
++                "/product/transition_memory", json={**request, "operation_id": "../bad"}
++            ).status_code
++            == 422
++        )
+diff --git a/tests/api/test_lifecycle_visibility.py b/tests/api/test_lifecycle_visibility.py
+new file mode 100644
+--- /dev/null
++++ b/tests/api/test_lifecycle_visibility.py
+@@ -0,0 +1,144 @@
++from types import SimpleNamespace
++
++import pytest
++
++
++def test_control_read_uses_scoped_driver_when_community_parser_drops_tenant():
++    from memos.api.memory_state import read_control_node
++
++    class Session:
++        def __enter__(self):
++            return self
++
++        def __exit__(self, *args):
++            pass
++
++        def run(self, query, **params):
++            assert params == {"id": "m", "cube": "a"}
++            assert "user_name:$cube" in query
++            return SimpleNamespace(
++                single=lambda: {
++                    "id": "m",
++                    "user_name": "a",
++                    "status": "deleted",
++                    "memory_type": "UserMemory",
++                    "vector_sync": "success",
++                    "previous_status": "activated",
++                }
++            )
++
++    graph = SimpleNamespace(
++        driver=SimpleNamespace(session=lambda **kwargs: Session()), db_name="neo4j"
++    )
++    assert read_control_node(graph, "m", "a")["metadata"]["user_name"] == "a"
++
++
++def test_ordinary_single_and_batch_rest_hide_tombstones_and_propagate_backend_outage():
++    from memos.api.handlers.memory_handler import handle_get_memory, handle_get_memory_by_ids
++
++    row = {"id": "m", "memory": "test", "metadata": {"status": "deleted"}}
++
++    class Text:
++        def get(self, *args, **kwargs):
++            return SimpleNamespace(model_dump=lambda: row)
++
++        def get_by_ids(self, **kwargs):
++            return [row]
++
++    cube = SimpleNamespace(text_mem=Text())
++    assert handle_get_memory("m", cube, "a").data is None
++    assert handle_get_memory_by_ids(["m"], cube, "a").data["memories"] == []
++
++    def offline(*args, **kwargs):
++        raise ConnectionError("graph offline")
++
++    cube.text_mem.get = offline
++    with pytest.raises(ConnectionError):
++        handle_get_memory("m", cube, "a")
++
++
++def test_search_confirms_current_graph_state_instead_of_trusting_vector_payload():
++    from memos.api.memory_visibility import confirm_current_memories
++
++    row = {"id": "m", "memory": "stale-vector", "metadata": {"status": "activated"}}
++
++    class Graph:
++        def get_node(self, identifier, **kwargs):
++            assert kwargs["user_name"] == "a"
++            return {"id": "m", "metadata": {"user_name": "a", "status": "deleted"}}
++
++    result = {"text_mem": [{"cube_id": "a", "memories": [row]}]}
++    assert confirm_current_memories(result, Graph(), None)["text_mem"][0]["memories"] == []
++
++
++def test_search_graph_failure_fails_closed():
++    from memos.api.memory_visibility import confirm_current_memories
++
++    class Graph:
++        def get_node(self, *args, **kwargs):
++            raise OSError("graph unavailable")
++
++    with pytest.raises(OSError):
++        confirm_current_memories(
++            {"text_mem": [{"cube_id": "a", "memories": [{"id": "m"}]}]}, Graph(), None
++        )
++
++
++@pytest.mark.parametrize("view", ["graph", "event"])
++def test_graph_and_event_public_lists_exclude_explicit_deleted_filter(view):
++    from memos.api.handlers.memory_handler import handle_get_event_memories, handle_get_memory_graph
++    from memos.api.product_models import GetEventMemoriesRequest, GetMemoryGraphRequest
++
++    class Text:
++        def get_all(self, **kwargs):
++            assert "deleted" not in (kwargs.get("status") or [])
++            return {"nodes": [], "edges": [], "total_nodes": 0}
++
++    cube = SimpleNamespace(text_mem=Text())
++    if view == "graph":
++        response = handle_get_memory_graph(
++            GetMemoryGraphRequest(mem_cube_id="a", status=["deleted"]), cube
++        )
++        assert response.data["nodes"] == []
++    else:
++        response = handle_get_event_memories(
++            GetEventMemoriesRequest(mem_cube_id="a", status=["deleted"]), cube
++        )
++        assert response.data["memories"] == []
++
++
++def test_legacy_subgraph_read_drops_deleted_neighbor_and_incident_edge(monkeypatch):
++    from memos.api.handlers import memory_handler
++
++    active = {"id": "a", "memory": "active", "metadata": {"status": "activated"}}
++    deleted = {"id": "b", "memory": "deleted-secret", "metadata": {"status": "deleted"}}
++    raw = {"nodes": [active, deleted], "edges": [{"source": "a", "target": "b", "type": "PARENT"}]}
++    captured = []
++    monkeypatch.setattr(
++        memory_handler,
++        "convert_graph_to_tree_forworkmem",
++        lambda graph, **kwargs: (captured.append(graph) or {"children": []}, {}),
++    )
++    monkeypatch.setattr(memory_handler, "ensure_unique_tree_ids", lambda tree: tree)
++    monkeypatch.setattr(memory_handler, "filter_nodes_by_tree_ids", lambda tree, graph: graph)
++
++    class Text:
++        graph_store = SimpleNamespace(
++            get_node=lambda identifier, **kwargs: {
++                "id": identifier,
++                "metadata": {
++                    "user_name": "tenant",
++                    "status": "activated" if identifier == "a" else "deleted",
++                },
++            }
++        )
++
++        def get_relevant_subgraph(self, *args, **kwargs):
++            return raw
++
++    result = memory_handler.handle_get_subgraph(
++        "u", "tenant", "active", 10, SimpleNamespace(text_mem=Text()), "fulltext"
++    )
++    assert all(node["id"] != "b" for node in captured[0]["nodes"])
++    assert captured[0]["edges"] == []
++    assert "deleted-secret" not in str(result.data)
+diff --git a/tests/api/test_memory_lifecycle.py b/tests/api/test_memory_lifecycle.py
+new file mode 100644
+--- /dev/null
++++ b/tests/api/test_memory_lifecycle.py
+@@ -0,0 +1,198 @@
++import copy
++import threading
++
++from concurrent.futures import ThreadPoolExecutor
++from types import SimpleNamespace
++
++import pytest
++
++from memos.api.cloud_store import JsonMetadataStore
++
++
++class Graph:
++    def __init__(self):
++        self.rows = {
++            "m1": {
++                "id": "m1",
++                "memory": "test-only",
++                "metadata": {"user_name": "a", "status": "activated", "vector_sync": "success"},
++            }
++        }
++        self.vec_db = Vector()
++        self.crash = False
++        self.writes = 0
++
++    def get_node(self, identifier, **kwargs):
++        row = self.rows.get(identifier)
++        return (
++            copy.deepcopy(row)
++            if row and row["metadata"]["user_name"] == kwargs.get("user_name")
++            else None
++        )
++
++    def update_node(self, identifier, fields, **kwargs):
++        self.rows[identifier]["metadata"].update(fields)
++        self.writes += 1
++        if self.crash:
++            raise SystemExit("simulated process interruption after graph commit")
++
++
++class Vector:
++    def __init__(self):
++        self.payload = {"status": "activated", "user_name": "a"}
++        self.offline = False
++        self.ignore_write = False
++
++    def get_by_id(self, identifier):
++        if self.offline:
++            raise OSError("vector unavailable")
++        return (
++            SimpleNamespace(payload=copy.deepcopy(self.payload))
++            if self.payload is not None
++            else None
++        )
++
++    def update(self, identifier, data):
++        if self.offline:
++            raise OSError("vector unavailable")
++        if not self.ignore_write:
++            self.payload.update(data["payload"])
++
++
++def service(tmp_path, graph=None):
++    from memos.api.memory_lifecycle import MemoryLifecycle
++
++    return MemoryLifecycle(JsonMetadataStore(tmp_path), graph or Graph())
++
++
++def transition(svc, target="deleted", op="delete-1", cube="a", identifier="m1"):
++    return svc.transition(cube=cube, memory_id=identifier, target_status=target, operation_id=op)
++
++
++def test_delete_restore_confirm_both_and_replay_does_not_undo_later_restore(tmp_path):
++    svc = service(tmp_path)
++    result = transition(svc)
++    assert result["state"] == "confirmed" and result["success"] is True
++    assert (
++        svc.graph.rows["m1"]["metadata"]["status"]
++        == svc.graph.vec_db.payload["status"]
++        == "deleted"
++    )
++    restored = transition(svc, "restore", "restore-1")
++    assert restored["target_status"] == "activated" and restored["state"] == "confirmed"
++    assert transition(svc)["state"] == "confirmed"
++    assert svc.graph.rows["m1"]["metadata"]["status"] == "activated"
++
++
++@pytest.mark.parametrize("failure", ["offline", "ignore_write", "missing"])
++def test_vector_failure_never_succeeds_and_restart_reconciles(tmp_path, failure):
++    graph = Graph()
++    if failure == "missing":
++        graph.vec_db.payload = None
++    else:
++        setattr(graph.vec_db, failure, True)
++    svc = service(tmp_path, graph)
++    result = transition(svc)
++    assert result["state"] == "pending" and result["success"] is False
++    assert graph.rows["m1"]["metadata"]["status"] == "deleted"
++    graph.vec_db.offline = graph.vec_db.ignore_write = False
++    graph.vec_db.payload = {"status": "activated", "user_name": "a"}
++    restarted = service(tmp_path, graph)
++    assert restarted.reconcile() == 1
++    assert transition(restarted)["state"] == "confirmed"
++    assert graph.vec_db.payload["status"] == "deleted"
++
++
++def test_crash_after_graph_commit_is_recoverable_and_opposite_operation_drains_first(tmp_path):
++    graph = Graph()
++    graph.crash = True
++    svc = service(tmp_path, graph)
++    with pytest.raises(SystemExit):
++        transition(svc)
++    graph.crash = False
++    restarted = service(tmp_path, graph)
++    result = transition(restarted, "restore", "restore-after-crash")
++    assert result["state"] == "confirmed"
++    assert graph.rows["m1"]["metadata"]["status"] == graph.vec_db.payload["status"] == "activated"
++
++
++def test_no_graph_mutation_when_intent_cannot_be_persisted(tmp_path, monkeypatch):
++    svc = service(tmp_path)
++
++    def fail(*args):
++        raise OSError("metadata unavailable")
++
++    monkeypatch.setattr(svc.store, "put", fail)
++    with pytest.raises(OSError):
++        transition(svc)
++    assert svc.graph.writes == 0
++
++
++def test_scope_frozen_and_conflicting_operation_id(tmp_path):
++    from memos.api.memory_lifecycle import LifecycleError
++
++    svc = service(tmp_path)
++    with pytest.raises(LifecycleError) as error:
++        transition(svc, cube="b")
++    assert error.value.code == 404
++    svc.graph.rows["m1"]["metadata"]["status"] = "frozen"
++    with pytest.raises(LifecycleError) as error:
++        transition(svc)
++    assert error.value.code == 409
++    svc.graph.rows["m1"]["metadata"]["status"] = "activated"
++    transition(svc)
++    with pytest.raises(LifecycleError) as error:
++        transition(svc, "restore", "delete-1")
++    assert error.value.code == 409
++
++
++def test_opposite_transitions_serialize_across_service_instances(tmp_path):
++    graph = Graph()
++    first, second = service(tmp_path, graph), service(tmp_path, graph)
++    began, release = threading.Event(), threading.Event()
++    original = graph.vec_db.update
++
++    def wait(identifier, data):
++        if data["payload"]["status"] == "deleted":
++            began.set()
++            assert release.wait(5)
++        original(identifier, data)
++
++    graph.vec_db.update = wait
++    with ThreadPoolExecutor(2) as pool:
++        deleted = pool.submit(transition, first)
++        assert began.wait(5)
++        restored = pool.submit(transition, second, "restore", "opposite")
++        release.set()
++        assert deleted.result()["state"] == restored.result()["state"] == "confirmed"
++    assert graph.rows["m1"]["metadata"]["status"] == graph.vec_db.payload["status"] == "activated"
++
++
++def test_explicit_never_indexed_graph_only_record(tmp_path):
++    svc = service(tmp_path)
++    svc.graph.vec_db.payload = None
++    svc.graph.rows["m1"]["metadata"]["vector_sync"] = "not_indexed"
++    assert transition(svc)["state"] == "confirmed"
++
++
++def test_running_worker_retries_without_service_restart(tmp_path):
++    import time
++
++    from memos.api.memory_lifecycle import LifecycleWorker
++
++    svc = service(tmp_path)
++    svc.graph.vec_db.offline = True
++    assert transition(svc)["state"] == "pending"
++    worker = LifecycleWorker(lambda: svc, interval=0.02)
++    worker.start()
++    try:
++        svc.graph.vec_db.offline = False
++        deadline = time.monotonic() + 3
++        while time.monotonic() < deadline:
++            result = svc.get_operation("a", "delete-1")
++            if result["state"] == "confirmed":
++                break
++            time.sleep(0.02)
++        assert result["state"] == "confirmed" and result["attempts"] >= 2
++    finally:
++        worker.stop()
+diff --git a/tests/api/test_profile_lifecycle.py b/tests/api/test_profile_lifecycle.py
+new file mode 100644
+--- /dev/null
++++ b/tests/api/test_profile_lifecycle.py
+@@ -0,0 +1,96 @@
++from memos.api.cloud_store import JsonMetadataStore
++from memos.api.profile import PROFILE_INSTANCE_KIND, ProfileService
++
++
++def fixture(tmp_path):
++    svc = ProfileService(JsonMetadataStore(tmp_path))
++    template = svc.add_template(
++        user_name="a",
++        name="test",
++        metadata={"basic": {"user_name": {"value": None}, "城市": {"value": None}}},
++    )
++    instance = svc.bind(
++        user_name="a", bind_list=[{"user_id": "u", "profile_template_id": template["entity_id"]}]
++    )[0]
++    svc.edit(
++        user_name="a",
++        template_id=template["entity_id"],
++        user_id="u",
++        metadata={"basic.user_name": {"value": "original"}, "basic.城市": {"value": "杭州"}},
++    )
++    return svc, template["entity_id"], instance["id"]
++
++
++def test_delete_one_field_hides_all_views_and_restores_original_after_updates_and_restart(tmp_path):
++    from memos.api.memory_lifecycle import MemoryLifecycle
++
++    profile, template, instance = fixture(tmp_path)
++    lifecycle = MemoryLifecycle(profile.store, None, profile)
++    identifier = instance + "_basic.user_name"
++    result = lifecycle.transition(
++        cube="a",
++        memory_id=identifier,
++        target_status="deleted",
++        operation_id="delete",
++        kind="profile",
++    )
++    assert result["success"] is True and result["vector_state"] == "not_applicable"
++    assert profile.get_field_row(user_name="a", memory_id=identifier) is None
++    assert profile.list_field_rows(user_name="a")[1] == 1
++    assert len(profile.recall(user_name="a", user_id="u")) == 1
++    assert "basic.user_name" not in profile.query(user_name="a", user_id="u")[0]["metadata"]
++    profile.edit(
++        user_name="a",
++        template_id=template,
++        user_id="u",
++        metadata={"basic.user_name": {"value": "must-not-overwrite"}},
++    )
++
++    class LLM:
++        def generate(self, *args, **kwargs):
++            return '{"basic.user_name":"must-not-overwrite"}'
++
++    profile.extract_and_update(user_name="a", user_id="u", llm=LLM(), conversation="test")
++    profile.update_template(
++        user_name="a",
++        template_id=template,
++        metadata={"basic": {"user_name": {"value": "template-new"}, "城市": {"value": None}}},
++    )
++    raw = profile.store.get(PROFILE_INSTANCE_KIND, instance)
++    assert raw["fields"]["basic.user_name"]["status"] == "deleted"
++    assert raw["fields"]["basic.user_name"]["value"] == "original"
++    restarted = ProfileService(JsonMetadataStore(tmp_path))
++    assert restarted.get_field_row(user_name="a", memory_id=identifier) is None
++    restored = MemoryLifecycle(restarted.store, None, restarted).transition(
++        cube="a",
++        memory_id=identifier,
++        target_status="restore",
++        operation_id="restore",
++        kind="profile",
++    )
++    assert restored["success"] is True
++    assert (
++        restarted.get_field_row(user_name="a", memory_id=identifier)["memory"]
++        == "basic.user_name: original"
++    )
++    assert (
++        restarted.get_field_row(user_name="a", memory_id=instance + "_basic.城市")["memory"]
++        == "basic.城市: 杭州"
++    )
++
++
++def test_profile_transition_cross_tenant_rejected(tmp_path):
++    import pytest
++
++    from memos.api.memory_lifecycle import LifecycleError, MemoryLifecycle
++
++    profile, _, instance = fixture(tmp_path)
++    with pytest.raises(LifecycleError) as exc:
++        MemoryLifecycle(profile.store, None, profile).transition(
++            cube="b",
++            memory_id=instance + "_basic.user_name",
++            target_status="deleted",
++            operation_id="cross",
++            kind="profile",
++        )
++    assert exc.value.code == 404
+diff --git a/tests/api/test_profile_memory_routes.py b/tests/api/test_profile_memory_routes.py
+new file mode 100644
+--- /dev/null
++++ b/tests/api/test_profile_memory_routes.py
+@@ -0,0 +1,60 @@
++import importlib
++
++from fastapi import FastAPI
++from fastapi.testclient import TestClient
++
++from memos.api.cloud_store import JsonMetadataStore
++from memos.api.profile import PROFILE_INSTANCE_KIND, ProfileService
++
++
++def test_profile_read_routes_have_tenant_scoped_envelopes(tmp_path):
++    module = importlib.import_module("memos.api.profile_memory_routes")
++    service = ProfileService(JsonMetadataStore(tmp_path))
++    identifier = "profile_" + "a" * 32
++    service.store.put(
++        PROFILE_INSTANCE_KIND,
++        {
++            "entity_id": identifier,
++            "user_name": "cube-a",
++            "status": "bound",
++            "subject_type": "user",
++            "subject_id": "u1",
++            "template_id": "t1",
++            "created_at": "2026-01-01T00:00:00Z",
++            "fields": {"name_中文": {"value": "Marker"}},
++        },
++    )
++    app = FastAPI()
++    app.include_router(module.create_profile_memory_router(lambda: service), prefix="/product")
++    with TestClient(app) as client:
++        response = client.post("/product/list_profile_memories", json={"mem_cube_id": "cube-a"})
++        assert response.status_code == 200
++        data = response.json()["data"]
++        assert response.json()["code"] == 200
++        assert data["total"] == 1 and data["cube_id"] == "cube-a"
++        row = data["memories"][0]
++        response = client.post(
++            "/product/get_profile_memory", json={"mem_cube_id": "cube-a", "memory_id": row["id"]}
++        )
++        assert response.json()["data"] == row
++        assert (
++            client.post(
++                "/product/get_profile_memory",
++                json={"mem_cube_id": "cube-b", "memory_id": row["id"]},
++            ).json()["data"]
++            is None
++        )
++        assert client.post("/product/list_profile_memories", json={}).status_code == 422
++        assert (
++            client.post(
++                "/product/list_profile_memories", json={"mem_cube_id": "cube-a", "page": 0}
++            ).status_code
++            == 422
++        )
++        assert (
++            client.post(
++                "/product/list_profile_memories",
++                json={"mem_cube_id": "cube-a", "start_time": "2026-01-01T00:00:00"},
++            ).status_code
++            == 422
++        )
+diff --git a/tests/api/test_profile_memory_rows.py b/tests/api/test_profile_memory_rows.py
+new file mode 100644
+--- /dev/null
++++ b/tests/api/test_profile_memory_rows.py
+@@ -0,0 +1,79 @@
++from memos.api.cloud_store import JsonMetadataStore
++from memos.api.profile import PROFILE_INSTANCE_KIND, ProfileService
++
++
++def fixture_service(tmp_path):
++    store = JsonMetadataStore(tmp_path)
++    service = ProfileService(store)
++    ids = []
++    for n, (tenant, kind) in enumerate([("a", "user"), ("a", "agent"), ("b", "user")]):
++        identifier = "profile_" + f"{n:032x}"
++        ids.append(identifier)
++        store.put(
++            PROFILE_INSTANCE_KIND,
++            {
++                "entity_id": identifier,
++                "user_name": tenant,
++                "subject_type": kind,
++                "subject_id": f"subject-{n}",
++                "status": "bound",
++                "template_id": "template-1",
++                "created_at": f"2026-01-0{n + 1}T00:00:00+00:00",
++                "updated_at": "2026-02-01T00:00:00+00:00",
++                "fields": {
++                    "basic.user_name": {"value": f"Marker-{n}"},
++                    "城市": {"value": "杭州"},
++                    "empty": {"value": None},
++                    "old": {"value": "hidden", "deprecated": True},
++                    "deleted": {"value": "hidden", "status": "deleted"},
++                },
++            },
++        )
++    return service, store, ids
++
++
++def test_project_rows_cover_subjects_paginate_and_keep_stable_ids(tmp_path):
++    service, _, ids = fixture_service(tmp_path)
++    rows, total = service.list_field_rows(user_name="a", page=1, page_size=2)
++    rest, second_total = service.list_field_rows(user_name="a", page=2, page_size=2)
++    assert total == second_total == 4
++    assert len(rows) == len(rest) == 2
++    assert {row["subject_type"] for row in rows + rest} == {"user", "agent"}
++    assert len({row["id"] for row in rows + rest}) == 4
++    assert rows[0]["profile_instance_id"] == ids[1]
++    for row in rows + rest:
++        assert service.get_field_row(user_name="a", memory_id=row["id"]) == row
++        assert service.get_field_row(user_name="b", memory_id=row["id"]) is None
++
++
++def test_profile_filters_before_total_and_paging(tmp_path):
++    service, _, _ = fixture_service(tmp_path)
++    rows, total = service.list_field_rows(
++        user_name="a", subject_type="user", search="marker", page_size=1
++    )
++    assert total == 1 and rows[0]["subject_id"] == "subject-0"
++    assert service.list_field_rows(user_name="a", subject_id="subject-1")[1] == 2
++    assert service.list_field_rows(user_name="a", start_time="2026-01-02T00:00:00+00:00")[1] == 2
++    assert (
++        service.list_field_rows(
++            user_name="a", end_time="2026-01-02T00:00:00+00:00", end_exclusive=True
++        )[1]
++        == 2
++    )
++    assert service.list_field_rows(user_name="a", knowledgebase_id="not-linked")[1] == 0
++    assert service.list_field_rows(user_name="missing")[1] == 0
++
++
++def test_profile_unicode_path_detached_and_invalid_ids(tmp_path):
++    service, store, ids = fixture_service(tmp_path)
++    assert (
++        service.get_field_row(user_name="a", memory_id=ids[0] + "_城市")["memory"] == "城市: 杭州"
++    )
++    assert service.get_field_row(user_name="a", memory_id=ids[0] + "_basic.user_name")
++    for suffix in ["_empty", "_old", "_deleted", "_missing"]:
++        assert service.get_field_row(user_name="a", memory_id=ids[0] + suffix) is None
++    assert service.get_field_row(user_name="a", memory_id="../bad") is None
++    instance = store.get(PROFILE_INSTANCE_KIND, ids[0])
++    instance["status"] = "detached"
++    store.put(PROFILE_INSTANCE_KIND, instance)
++    assert service.get_field_row(user_name="a", memory_id=ids[0] + "_城市") is None
+diff --git a/tests/mem_reader/test_project_extract_runtime.py b/tests/mem_reader/test_project_extract_runtime.py
+new file mode 100644
+--- /dev/null
++++ b/tests/mem_reader/test_project_extract_runtime.py
+@@ -0,0 +1,67 @@
++"""Saved project templates must reach the actual multimodal chat reader."""
++
++from types import SimpleNamespace
++from unittest.mock import Mock
++
++from memos.context.context import ContextThreadPoolExecutor
++from memos.mem_reader.multi_modal_struct import MultiModalStructMemReader
++from memos.mem_reader.prompt_config import use_base_extract_prompt
++
++
++def test_project_chat_template_reaches_worker_without_leaking_to_next_request():
++    reader = object.__new__(MultiModalStructMemReader)
++    reader.config = SimpleNamespace(remove_prompt_example=False)
++    reader.llm = Mock()
++    reader.llm.generate.return_value = '{"memory list": [], "summary": ""}'
++    with ContextThreadPoolExecutor(max_workers=1) as executor:
++        with use_base_extract_prompt("PROJECT_RULE ${conversation} ${custom_tags_prompt}"):
++            executor.submit(reader._get_llm_response, "user: stable policy", ["policy"]).result()
++        configured = reader.llm.generate.call_args.args[0][0]["content"]
++        assert "PROJECT_RULE" in configured
++        assert "user: stable policy" in configured
++        assert "${conversation}" not in configured
++        executor.submit(reader._get_llm_response, "user: another project").result()
++        ordinary = reader.llm.generate.call_args.args[0][0]["content"]
++        assert "PROJECT_RULE" not in ordinary
++        with use_base_extract_prompt("PROJECT_RULE ${conversation}"):
++            executor.submit(reader._get_llm_response, "file content", None, None, "doc").result()
++        assert "PROJECT_RULE" not in reader.llm.generate.call_args.args[0][0]["content"]
++
++
++def test_runtime_accepts_memory_list_alias_used_by_debug_extraction():
++    reader = object.__new__(MultiModalStructMemReader)
++    reader.config = SimpleNamespace(remove_prompt_example=False)
++    reader.llm = Mock()
++    reader.llm.generate.return_value = '{"memory_list": [{"value": "stable fact"}], "summary": ""}'
++    with use_base_extract_prompt("Saved rule ${conversation}"):
++        result = reader._get_llm_response("user: stable fact")
++    assert result["memory list"] == [{"value": "stable fact"}]
++
++
++def test_multi_cube_fanout_loads_each_project_template(tmp_path, monkeypatch):
++    from memos.mem_reader.prompt_config import (
++        current_base_extract_prompt,
++        save_prompt,
++        use_project_extract_prompt,
++    )
++    from memos.multi_mem_cube.composite_cube import CompositeCubeView
++
++    monkeypatch.setenv("MEMOS_PROMPT_CONFIG_DB", str(tmp_path / "prompts.db"))
++    save_prompt("a", "PROJECT_A ${conversation}")
++    save_prompt("b", "PROJECT_B ${conversation}")
++
++    def capture(request):
++        return [{"prompt": current_base_extract_prompt()}]
++
++    views = [
++        SimpleNamespace(cube_id=cube, add_memories=capture, extract_memories=capture)
++        for cube in ("a", "b", "unset")
++    ]
++    composite = CompositeCubeView(cube_views=views, logger=Mock())
++    with use_project_extract_prompt("a"):
++        for method in (composite.add_memories, composite.extract_memories):
++            assert [r["prompt"] for r in method(Mock())] == [
++                "PROJECT_A ${conversation}",
++                "PROJECT_B ${conversation}",
++                None,
++            ]

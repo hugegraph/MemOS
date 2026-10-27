@@ -4,7 +4,7 @@ MemOS 记忆服务的 Web 控制台：接入说明、接口密钥、调用日志
 模型清单、自定义抽取、用量监控。
 
 - 页面：Vite + React 19 + react-router-dom，全部走 `/cn/*` 路由。
-- 后端：独立的 Go 服务 `memosd`（另一个仓库），同源托管 `dist/`；本仓库只负责前端与接口契约。
+- 后端：本分支新增独立 Python 适配服务，接入 deployment-v2 的 MemOS 与网关审计数据；部署、权限、上游配套补丁及验收入口见 [后端说明](server/backend/README.md)。原有独立 Go 服务 `memosd` 不属于本次实现。
 - 本地 mock：`server/mock/`，只在开发时用，不部署。
 - 接口契约：`shared/contract.ts`（前后端共用的类型）+ 仓库根目录的 `openapi.json`。
 
