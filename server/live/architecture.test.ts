@@ -22,8 +22,8 @@ const record = (id: string, status = 'activated') => ({
   memory: `记忆 ${id}`,
   metadata: { status, user_id: 'user-x', created_at: '2026-10-01T08:00:00+08:00', embedding: [1, 2], sources: ['private'] },
 })
-const project = { id: 'project-x', name: 'Workspace', userId: 'user-x', cubeId: 'cube-x', tenant: 'audit-user', status: 'ENABLED' }
-const binding = { projectId: 'project-x', principal: { userId: 'user-x', cubeId: 'cube-x' }, auditTenant: 'audit-user' }
+const project = { id: 'project-x', name: 'Workspace', userId: 'user-x', cubeId: 'cube-x', tenant: 'user-x', status: 'ENABLED' }
+const binding = { projectId: 'project-x', principal: { userId: 'user-x', cubeId: 'cube-x' }, auditTenant: 'user-x' }
 async function setup(t: TestContext, projects = [project]) {
   const dir = await mkdtemp(join(tmpdir(), 'memos-architecture-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
@@ -33,7 +33,7 @@ async function setup(t: TestContext, projects = [project]) {
   return { dir, settings, repository, workspaces }
 }
 
-test('architecture: workspace resolves distinct project/user/cube/audit identities without guessing', async (t) => {
+test('architecture: workspace resolves distinct project/user/cube IDs with gateway-compatible audit identity', async (t) => {
   const { workspaces } = await setup(t)
   assert.deepEqual(workspaces.resolveWorkspace('project-x'), binding)
   const copy = workspaces.get('project-x')
@@ -78,14 +78,20 @@ test('architecture: MemOSClient uses upstream field names and explicit binding',
   const client = new MemOSClient(config({ DASHBOARD_PROMPT_TOKEN: 'fixture-private-token' }), {
     fetch: async (url, options) => {
       calls.push({ url, options, body: options.body && JSON.parse(options.body) })
-      return Response.json({ code: 200, data: url.endsWith('/soft-delete') ? { deleted: 1, soft_deleted: true } : { text_mem: [] } })
+      return Response.json({
+        code: 200,
+        data: url.endsWith('/soft-delete')
+          ? { deleted: 1, soft_deleted: true }
+          : { rows: [], total: 0, user_id: 'user-x', mem_cube_id: 'cube-x' },
+      })
     },
   })
   await client.getMemory(binding, 'text_mem')
   await client.deleteMemory(['memory-x'], binding)
   assert.equal(calls[0].body.user_id, 'user-x')
   assert.equal(calls[0].body.mem_cube_id, 'cube-x')
-  assert.equal(calls[0].body.page, null)
+  assert.equal(calls[0].body.page, 1)
+  assert.ok(calls[0].url.endsWith('/dashboard-memory/query'))
   assert.equal(calls[1].body.mem_cube_id, 'cube-x')
   assert.equal(calls[1].body.user_id, 'user-x')
   assert.equal(calls[1].options.headers['X-Dashboard-Prompt-Token'], 'fixture-private-token')

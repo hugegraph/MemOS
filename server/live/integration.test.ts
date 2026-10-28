@@ -11,6 +11,7 @@ import { config } from './core.ts'
 import { createApp } from './server.ts'
 import { buildRoutes } from './app.ts'
 import { invoke } from './test-support.ts'
+import { queryFixture } from './query-fixture.ts'
 import type { Envelope, RouteResult } from './test-support.ts'
 import type { TestContext } from 'node:test'
 import type { AddressInfo } from 'node:net'
@@ -46,7 +47,12 @@ async function setup(t: TestContext) {
     for await (const chunk of req) chunks.push(chunk)
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {}
     let data
-    if (req.url === '/product/get_memory')
+    if (req.url === '/product/dashboard-memory/query')
+      data = queryFixture(
+        memories.map((row) => ({ cube: row.metadata.user_name, type: 'text_mem', row })),
+        body,
+      )
+    else if (req.url === '/product/get_memory')
       data = {
         text_mem: [{ cube_id: body.mem_cube_id, memories: memories.filter((r) => r.metadata.user_name === body.mem_cube_id) }],
         pref_mem: [],

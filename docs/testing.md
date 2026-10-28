@@ -1,5 +1,18 @@
 # Validation
 
+## Review regression additions
+
+`server/live/review-*.test.ts` test bounded upstream requests, exact-ID ownership reads,
+unmarked native types, cross-language Python-audit-to-BFF identity, grapheme-safe previews,
+audit diagnostics, template stale writers and injected persistence failures. These are
+isolated component/protocol tests, not deployed acceptance.
+
+The `extension-control-flow` CI job runs `test_query`, `test_patch`, `test_soft_delete`
+and `test_models` without pretending to exercise native storage. A separate `neo4j-query`
+job runs `verify_native_query.py --allow-fixture-write` against disposable loopback Neo4j,
+using more than 32 MiB of source data. Without the explicit opt-in and service configuration,
+that driver exits 2 with `BLOCKED`. MemOS/Qdrant/gateway/browser acceptance remains separate.
+
 ## Local deterministic checks
 
 Use Node 22.18+ (CI is configured for Node 24). The BFF and its colocated tests are

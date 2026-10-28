@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto'
+import { unlinkSync, existsSync } from 'node:fs'
+import { atomicJson, readJson } from '../repositories/atomic-json.ts'
 import { ApiError } from '../errors.ts'
 import { workspaceBinding, toDashboardProject } from '../domain/workspace.ts'
 import { paginate } from '../query.ts'
-import type { WorkspaceStorage, CubeCreator, DashboardInput } from '../types.ts'
+import type { WorkspaceStorage, CubeCreator, DashboardInput, WorkspaceRecord } from '../types.ts'
+type PendingCreation = { project: WorkspaceRecord; phase: 'planned' | 'upstream-confirmed' }
 
 export class WorkspaceService {
   #creating = false
@@ -10,10 +13,32 @@ export class WorkspaceService {
   declare repository: WorkspaceStorage
   declare client: CubeCreator
   declare owner: string
-  constructor(repository: WorkspaceStorage, client: CubeCreator, owner = '') {
+  declare recoveryFile?: string
+  #pending: PendingCreation | undefined
+  constructor(repository: WorkspaceStorage, client: CubeCreator, owner = '', recoveryFile?: string) {
     this.repository = repository
     this.client = client
     this.owner = owner
+    this.recoveryFile = recoveryFile
+    if (recoveryFile) {
+      const pending = readJson(recoveryFile, null) as PendingCreation | null
+      if (pending) {
+        workspaceBinding(pending.project)
+        if (!['planned', 'upstream-confirmed'].includes(pending.phase)) throw new ApiError('工作区恢复记录无效', 50300, 503)
+        this.#pending = pending
+      }
+    }
+  }
+  savePending(pending: PendingCreation) {
+    if (this.recoveryFile) atomicJson(this.recoveryFile, pending)
+    this.#pending = pending
+  }
+  get pendingRecovery() {
+    return this.#pending
+  }
+  clearPending() {
+    if (this.recoveryFile && existsSync(this.recoveryFile)) unlinkSync(this.recoveryFile)
+    this.#pending = undefined
   }
   get(id: unknown) {
     return this.repository.get(id)
@@ -38,6 +63,18 @@ export class WorkspaceService {
     return name.trim()
   }
   async create(body: DashboardInput) {
+    if (this.#pending) {
+      const { project, phase } = this.#pending
+      if (phase !== 'upstream-confirmed' || body.name?.trim() !== project.name)
+        throw new ApiError(`工作区创建待核对：${project.id}（${phase}）；禁止盲目重复创建`, 40900, 409)
+      if (!this.all().some((p) => p.id === project.id)) {
+        this.validateName(project.name)
+        const existing = this.all()
+        this.repository.replace([...existing, { ...project, status: existing.length ? 'DISABLED' : 'ENABLED' }])
+      }
+      this.clearPending()
+      return toDashboardProject(this.get(project.id))
+    }
     const name = this.validateName(body.name)
     if (!this.owner) throw new ApiError('新建上游工作区需配置 MEMOS_CUBE_OWNER（已存在的上游用户）', 50100, 501)
     if (this.#creating) throw new ApiError('已有工作区创建请求，请稍后重试', 40900, 409)
@@ -45,24 +82,28 @@ export class WorkspaceService {
     this.#pendingName = name
     try {
       const id = `proj_${randomUUID()}`
-      const result = await this.client.createCube({ cube_name: name, cube_id: id, owner_id: this.owner })
-      if ((result?.data as { cube_id?: unknown } | null | undefined)?.cube_id !== id)
-        throw new ApiError('上游创建工作区响应的 cube_id 不匹配', 50200, 502)
-      // A concurrent update may have used this name while create_cube was awaited.
-      this.validateName(name)
-      const projects = this.all()
-      const project = {
+      const project: WorkspaceRecord = {
         id,
         name,
         description: body.description || '',
         isMultiView: body.isMultiView || 0,
-        status: projects.length ? 'DISABLED' : 'ENABLED',
+        status: this.all().length ? 'DISABLED' : 'ENABLED',
         createTime: new Date().toISOString(),
         cubeId: id,
         userId: this.owner,
         tenant: this.owner,
       }
+      // Write-ahead identity survives a crash or ambiguous timeout after native creation.
+      this.savePending({ project, phase: 'planned' })
+      const result = await this.client.createCube({ cube_name: name, cube_id: id, owner_id: this.owner })
+      if ((result?.data as { cube_id?: unknown } | null | undefined)?.cube_id !== id)
+        throw new ApiError('上游创建工作区响应的 cube_id 不匹配', 50200, 502)
+      this.savePending({ project, phase: 'upstream-confirmed' })
+      // A concurrent update may have used this name while create_cube was awaited.
+      this.validateName(name)
+      const projects = this.all()
       this.repository.replace([...projects, project])
+      this.clearPending()
       return toDashboardProject(project)
     } finally {
       this.#creating = false

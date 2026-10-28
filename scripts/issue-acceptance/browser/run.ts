@@ -385,7 +385,11 @@ async function setup() {
         void send('Fetch.fulfillRequest', {
           requestId: p.requestId,
           responseCode: 502,
-          responseHeaders: [{ name: 'Content-Type', value: 'application/json' }],
+          responseHeaders: [
+            { name: 'Content-Type', value: 'application/json' },
+            { name: 'Access-Control-Allow-Origin', value: new URL(base).origin },
+            { name: 'Vary', value: 'Origin' },
+          ],
           body: Buffer.from(JSON.stringify({ code: 50200, data: null, message: 'Acceptance simulated upstream unavailable' })).toString(
             'base64',
           ),

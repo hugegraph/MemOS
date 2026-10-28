@@ -16,6 +16,7 @@ MemOS 记忆服务的 Web 控制台：接入说明、接口密钥、调用日志
 - [架构、数据映射及兼容性](docs/ARCHITECTURE.md)
 - [Docker部署与必要上游扩展](deploy/dashboard-bff/README.md)
 - [测试命令与验收边界](docs/testing.md)
+- [审查修复：升级顺序与故障恢复](docs/REVIEW-DEPLOYMENT-NOTES.md)
 - [新增依赖与许可证范围](docs/DEPENDENCIES.md)
 
 按ID软删除、工作区Prompt和网关可信审计/密钥热加载需要明确安装相应扩展。

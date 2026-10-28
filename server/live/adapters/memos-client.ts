@@ -1,5 +1,5 @@
 import { ApiError } from '../errors.ts'
-import type { Settings, NativeEnvelope, RequestOptions, Transport, WorkspaceBinding } from '../types.ts'
+import type { Settings, NativeEnvelope, RequestOptions, Transport, WorkspaceBinding, DashboardInput, NativeMemory } from '../types.ts'
 
 /** Adapter for deployment/src/memos/api/product_models.py, not a second Dashboard API. */
 export class MemOSClient {
@@ -73,16 +73,57 @@ export class MemOSClient {
   health() {
     return this.request('/health')
   }
+  async queryMemory(binding: WorkspaceBinding, query: DashboardInput, ids?: string[]) {
+    if (!this.managementToken) throw new ApiError('分页查询需要受控 memory 扩展及 DASHBOARD_MEMORY_TOKEN；不回退为全量导出', 50100, 501)
+    const response = await this.request(
+      '/product/dashboard-memory/query',
+      {
+        user_id: binding.principal.userId,
+        mem_cube_id: binding.principal.cubeId,
+        tab: query.memoryDetailType ?? query.memType,
+        page: query.pageNum ?? 1,
+        page_size: query.pageSize ?? 10,
+        start_time: query.startTime ? new Date(query.startTime).toISOString() : undefined,
+        end_time: query.endTime ? new Date(query.endTime).toISOString() : undefined,
+        external_user_id: query.externalUserId,
+        subject_type: query.subjectType,
+        search: query.memSearchContent,
+        ids,
+      },
+      { headers: { 'X-Dashboard-Prompt-Token': this.managementToken } },
+    )
+    const data = response.data as { rows?: NativeMemory[]; total?: number; user_id?: string; mem_cube_id?: string } | undefined
+    if (
+      !data ||
+      data.user_id !== binding.principal.userId ||
+      data.mem_cube_id !== binding.principal.cubeId ||
+      !Array.isArray(data.rows) ||
+      !Number.isSafeInteger(data.total) ||
+      data.total! < 0 ||
+      data.rows.length > (ids?.length ?? query.pageSize ?? 10) ||
+      data.total! < data.rows.length
+    )
+      throw new ApiError('上游分页查询协议或身份不匹配；请升级受控 memory 扩展', 50200, 502)
+    if (
+      data.rows.some(
+        (r) =>
+          !r ||
+          typeof r.id !== 'string' ||
+          !r.id ||
+          (ids && !ids.includes(r.id)) ||
+          (r.metadata?.user_name !== undefined && r.metadata.user_name !== binding.principal.cubeId),
+      ) ||
+      new Set(data.rows.map((r) => r.id)).size !== data.rows.length
+    )
+      throw new ApiError('上游分页返回了无效、重复或越界记录', 50200, 502)
+    return { rows: data.rows, total: data.total! }
+  }
   getMemory(binding: Pick<WorkspaceBinding, 'principal'>, bucket: string) {
-    return this.request('/product/get_memory', {
-      mem_cube_id: binding.principal.cubeId,
-      user_id: binding.principal.userId,
-      include_preference: bucket === 'pref_mem',
-      include_tool_memory: bucket === 'tool_mem',
-      include_skill_memory: bucket === 'skill_mem',
-      page: null,
-      page_size: null,
-    })
+    // Compatibility callers get one bounded page, never an implicit full export.
+    return this.queryMemory(
+      { ...binding, projectId: '', auditTenant: binding.principal.userId },
+      { memoryDetailType: bucket, pageSize: 100 },
+    ).then((data) => ({ code: 200, data: { [bucket]: [{ cube_id: binding.principal.cubeId, memories: data.rows }] } }))
   }
   async deleteMemory(ids: string[], binding: Pick<WorkspaceBinding, 'principal'>) {
     if (!this.managementToken) throw new ApiError('未配置受控软删除扩展，已拒绝物理删除回退', 50100, 501)

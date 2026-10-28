@@ -2,7 +2,7 @@ import { open, readdir, lstat } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { ApiError } from '../errors.ts'
-import { normalizeAuditRecord } from '../adapters/audit-mapper.ts'
+import { normalizeAuditRecord, AuditParseError } from '../adapters/audit-mapper.ts'
 import type { AuditRecord, AuditFile, Settings } from '../types.ts'
 
 const digest = (buffer: Uint8Array) => createHash('sha256').update(buffer).digest('hex')
@@ -55,7 +55,9 @@ export class AuditRepository {
             throw new ApiError('审计文件读取期间被改写，请重试', 50300, 503)
           const reusable =
             old && old.ino === info.ino && buffer.length >= old.offset && digest(buffer.subarray(0, old.offset)) === old.prefixHash
-          const file: AuditFile = reusable ? { ...old, rows: [...old.rows] } : { offset: 0, rows: [], bad: 0 }
+          const file: AuditFile = reusable
+            ? { ...old, rows: [...old.rows], rejected: [...(old.rejected ?? [])] }
+            : { offset: 0, rows: [], bad: 0, rejected: [] }
           for (;;) {
             const end = buffer.indexOf(10, file.offset)
             const length = (end < 0 ? buffer.length : end) - file.offset
@@ -65,10 +67,17 @@ export class AuditRepository {
               line = buffer.subarray(offset, end)
             file.offset = end + 1
             if (!line.toString('utf8').trim()) continue
+            let raw: unknown
             try {
-              file.rows.push(normalizeAuditRecord(JSON.parse(line.toString('utf8')), { name, offset, line }))
-            } catch {
+              raw = JSON.parse(line.toString('utf8'))
+              file.rows.push(normalizeAuditRecord(raw, { name, offset, line }))
+            } catch (error) {
               file.bad++
+              const tenant = (raw as { tenant?: unknown } | undefined)?.tenant
+              file.rejected!.push({
+                tenant: typeof tenant === 'string' && tenant.trim() ? tenant : undefined,
+                reason: error instanceof AuditParseError ? error.reason : 'invalid_json',
+              })
             }
           }
           Object.assign(file, { ino: info.ino, size: info.size, mtime: info.mtimeMs, prefixHash: digest(buffer.subarray(0, file.offset)) })
@@ -95,5 +104,18 @@ export class AuditRepository {
   }
   badLines() {
     return [...this.#files.values()].reduce((sum, file) => sum + file.bad, 0)
+  }
+  diagnostics(tenants: string[]) {
+    const rejected = [...this.#files.values()]
+      .flatMap((f) => f.rejected ?? [])
+      .filter((r) => r.tenant === undefined || tenants.includes(r.tenant))
+    const reasons: Record<string, number> = {}
+    for (const r of rejected) reasons[r.reason] = (reasons[r.reason] ?? 0) + 1
+    return {
+      incomplete: rejected.length > 0,
+      rejectedRecords: rejected.length,
+      reasons,
+      scope: 'selected-tenants-plus-unattributable; source-wide, not time-filtered',
+    }
   }
 }

@@ -25,3 +25,35 @@ jobs:
       - run: node scripts/issue-acceptance/verify-frontend-unchanged.ts
       - run: node --test server/live/*.test.ts scripts/mock-api.test.ts scripts/acceptance.test.ts scripts/issue-acceptance/isolated/*.test.ts scripts/issue-acceptance/contract/*.test.ts scripts/issue-acceptance/real/*.test.ts
       - run: npx --yes @redocly/cli@2.67.1 lint openapi.json
+  extension-control-flow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Query, patch drift and soft-delete control-flow (not native acceptance)
+        working-directory: deploy/dashboard-bff/memory-extension
+        run: python -m unittest test_query test_patch test_soft_delete test_models
+  neo4j-query:
+    runs-on: ubuntu-latest
+    services:
+      neo4j:
+        image: neo4j:5.26-community
+        env:
+          NEO4J_AUTH: neo4j/disposable-test-password
+        ports:
+          - 7687:7687
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install 'neo4j>=5,<6'
+      - name: Native scoped query and large-data regression
+        working-directory: deploy/dashboard-bff/memory-extension
+        env:
+          NEO4J_TEST_URI: bolt://127.0.0.1:7687
+          NEO4J_TEST_USER: neo4j
+          NEO4J_TEST_PASSWORD: disposable-test-password
+        run: python verify_native_query.py --allow-fixture-write

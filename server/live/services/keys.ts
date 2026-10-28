@@ -61,8 +61,19 @@ export class KeyService {
     const { userId, cubeId } = binding.principal
     // Preserve compact legacy format when identities coincide; otherwise retain the actual cube.
     const tenant = userId === cubeId ? userId : { user_id: userId, cube_id: cubeId }
-    this.adapter.save(snapshot, { ...snapshot.entries, [token]: tenant })
-    this.saveMetadata({ ...this.metadata, [keyId(token)]: { name: body.keyName.trim(), createTime: new Date().toISOString() } })
+    const before = structuredClone(this.metadata)
+    // Persist metadata before activating credentials: failure cannot leave an unreported live key.
+    this.saveMetadata({ ...before, [keyId(token)]: { name: body.keyName.trim(), createTime: new Date().toISOString() } })
+    try {
+      this.adapter.save(snapshot, { ...snapshot.entries, [token]: tenant })
+    } catch (error) {
+      try {
+        this.saveMetadata(before)
+      } catch {
+        throw new ApiError('密钥未确认激活；孤立 metadata 清理失败，请核对网关配置后重试', 50300, 503)
+      }
+      throw error
+    }
     return this.publicKey(token)
   }
   lookup(id: unknown, snapshot: GatewaySnapshot) {
@@ -81,7 +92,12 @@ export class KeyService {
     delete entries[token]
     delete metadata[id]
     this.adapter.save(snapshot, entries)
-    this.saveMetadata(metadata)
+    try {
+      this.saveMetadata(metadata)
+    } catch {
+      // Never re-enable a revoked credential to compensate metadata failure.
+      throw new ApiError('密钥已从网关配置撤销，但 metadata 清理失败；请修复存储后清理孤立记录', 50300, 503)
+    }
     return { ok: true }
   }
 }

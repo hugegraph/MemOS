@@ -4,6 +4,7 @@ import os
 from fastapi import APIRouter, Body, Depends, Header, HTTPException
 from .soft_delete import delete, ScopeError, RequestError
 from .models import catalog, CatalogUnavailable
+from .query import query
 
 
 def install(app, graph, components=None):
@@ -16,6 +17,16 @@ def install(app, graph, components=None):
         if not hmac.compare_digest(x_dashboard_prompt_token, token):
             raise HTTPException(403, 'Memory management forbidden')
     router = APIRouter(prefix='/product/dashboard-memory', dependencies=[Depends(authorize)])
+    @router.post('/query')
+    def query_memory(body: dict = Body(...)):
+        if graph.__class__.__name__ != 'Neo4jCommunityGraphDB':
+            raise HTTPException(501, 'Bounded query requires supported Neo4j Community storage; no export fallback')
+        try:
+            return {'code': 200, 'data': query(graph, body), 'message': 'success'}
+        except ValueError:
+            raise HTTPException(400, 'Invalid query or conflicting native classification') from None
+        except Exception:
+            raise HTTPException(503, 'Scoped memory query failed') from None
     @router.get('/models')
     def models():
         try:

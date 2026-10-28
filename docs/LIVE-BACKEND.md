@@ -18,7 +18,9 @@ Start a compatible MemOS deployment first. Copy `.env.example` to `.env.live`, t
   `[{"id":"demo","name":"Demo","userId":"demo-owner","cubeId":"demo-cube","tenant":"demo-owner","status":"ENABLED"}]`.
   These are placeholders, not automatically provisioned identities.
 - `MEMORY_CALL_LOG_DIR`: the gateway directory containing `calls-*.jsonl`, readable by the BFF.
-- `DASHBOARD_MEMORY_TOKEN`: the shared server-only soft-delete token, after installing the extension.
+- `DASHBOARD_MEMORY_TOKEN`: the shared server-only query/soft-delete token, after installing the extension.
+  Bounded memory queries require the updated extension; no full-export fallback exists.
+  Every workspace `tenant` must equal `userId` to match authenticated gateway audit records.
 
 ```bash
 pnpm live

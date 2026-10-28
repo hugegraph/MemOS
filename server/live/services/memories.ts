@@ -1,4 +1,5 @@
 import { ApiError } from '../errors.ts'
+import { truncateGraphemes } from '../text.ts'
 import { paginate, timeRange } from '../query.ts'
 import { memoryBucket, selectMemoryTab, toDashboardMemory } from '../adapters/memory-mapper.ts'
 import type { WorkspaceReader, NativeMemoryClient, WorkspaceBinding, NativeMemory, DashboardInput } from '../types.ts'
@@ -18,18 +19,25 @@ export class MemoryService {
     return (await this.ownedMany([id], type))[0]
   }
   async ownedMany(ids: string[], type?: string) {
-    memoryBucket(type)
+    if (type !== undefined) memoryBucket(type)
+    const types = type === undefined ? ['text_mem', 'pref_mem', 'tool_mem', 'skill_mem'] : [type]
     const pending = new Set(ids),
       found = new Map<string, { row: NativeMemory; binding: WorkspaceBinding }>()
     // No projectId in detail/delete contract: scope is the explicit configured cube allowlist.
     for (const project of this.workspaces.all()) {
       if (!pending.size) break
       const binding = this.workspaces.resolveWorkspace(project.id)
-      for (const row of await this.listRaw(binding, type))
-        if (pending.has(row.id)) {
-          found.set(row.id, { row, binding })
-          pending.delete(row.id)
-        }
+      for (const tab of types) {
+        if (!pending.size) break
+        const rows = this.client.queryMemory
+          ? (await this.client.queryMemory(binding, { memType: tab }, [...pending])).rows
+          : await this.listRaw(binding, tab)
+        for (const row of rows)
+          if (pending.has(row.id)) {
+            found.set(row.id, { row, binding })
+            pending.delete(row.id)
+          }
+      }
     }
     if (pending.size) throw new ApiError('记忆不存在或不属于已配置工作区', 40001, 404)
     return ids.map((id) => found.get(id)!)
@@ -38,6 +46,20 @@ export class MemoryService {
     const binding = this.workspaces.resolveWorkspace(query.projectId)
     if (query.knowledgeBaseId) throw new ApiError('自部署服务未提供知识库关联查询', 50100, 501)
     const inRange = timeRange(query.startTime, query.endTime)
+    if (this.client.queryMemory) {
+      memoryBucket(query.memoryDetailType)
+      const data = await this.client.queryMemory(binding, query)
+      const size = query.pageSize ?? 10
+      const limit = Math.max(64, Math.floor(120000 / Math.max(data.rows.length, 1) / 4))
+      const result = {
+        total: data.total,
+        current: query.pageNum ?? 1,
+        size,
+        memListItemResponseList: data.rows.map((r) => toDashboardMemory(r, { maxContentLength: limit })),
+      }
+      if (Buffer.byteLength(JSON.stringify(result)) > 195000) throw new ApiError('列表字段过大，请减少 pageSize', 41300, 413)
+      return result
+    }
     let rows = (await this.listRaw(binding, query.memoryDetailType)).map((row) => toDashboardMemory(row))
     if (query.startTime || query.endTime) rows = rows.filter((r) => inRange(r.createTime))
     if (query.externalUserId) rows = rows.filter((r) => r.externalUserId === query.externalUserId)
@@ -51,7 +73,7 @@ export class MemoryService {
     const limit = Math.max(64, Math.floor(120000 / Math.max(result.memListItemResponseList.length, 1) / 4))
     result.memListItemResponseList = result.memListItemResponseList.map((r) => ({
       ...r,
-      memoryContent: r.memoryContent.length > limit ? `${r.memoryContent.slice(0, limit)}…` : r.memoryContent,
+      memoryContent: truncateGraphemes(r.memoryContent, limit),
     }))
     if (Buffer.byteLength(JSON.stringify(result)) > 195000) throw new ApiError('列表字段过大，请减小 pageSize', 41300, 413)
     return result
@@ -60,7 +82,7 @@ export class MemoryService {
     return toDashboardMemory((await this.owned(id, type)).row)
   }
   async delete(ids: string[], type?: string) {
-    memoryBucket(type)
+    if (type !== undefined) memoryBucket(type)
     const unique = [...new Set(ids)]
     if (unique.length > 100) throw new ApiError('单次最多删除 100 条记忆')
     const authorized = await this.ownedMany(unique, type)

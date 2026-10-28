@@ -80,8 +80,8 @@ for (const type of ['text_mem', 'pref_mem', 'tool_mem', 'skill_mem'])
     )
   })
 for (const type of ['event_mem', 'profile_mem'])
-  test(`I1-TAB-${type}: explicit metadata.type mapping, no lifecycle inference`, opts, async (t) => {
-    // Product decision confirmed by user 2026-10-19. Expected IDs are independent of mapper implementation.
+  test(`I1-TAB-${type}: explicit markers plus documented native semantics`, opts, async (t) => {
+    // Updated contract: UserMemory is a profile; Working/LongTerm are not inferred events.
     const h = await fixture(t, 0)
     h.rows.push(
       { cube: 'A', type: 'text_mem', row: memory('marked', 'A', { type }) },
@@ -92,14 +92,17 @@ for (const type of ['event_mem', 'profile_mem'])
       { cube: 'B', type: 'text_mem', row: memory('foreign-marked', 'B', { type }) },
     )
     const page = await h.request(`${P}project/memory/list`, { ...query, memoryDetailType: type })
-    assert.deepEqual(page.memListItemResponseList.map((row) => row.memoryId).sort(), ['marked', 'rest-marked'])
+    assert.deepEqual(
+      page.memListItemResponseList.map((row) => row.memoryId).sort(),
+      type === 'profile_mem' ? ['marked', 'rest-marked', 'unmarked-user'] : ['marked', 'rest-marked'],
+    )
     assert.equal((await h.request(`${P}project/memory/detail`, { memoryId: 'marked', memType: type })).memoryId, 'marked')
-    await h.request(`${P}project/memory/detail`, { memoryId: 'unmarked-user', memType: type }, 'POST', 404)
-    await h.request(`${P}project/memory/delete`, { memory_ids: ['marked', 'unmarked-user'], memType: type }, 'POST', 404)
+    await h.request(`${P}project/memory/detail`, { memoryId: 'unmarked-long-term', memType: type }, 'POST', 404)
+    await h.request(`${P}project/memory/delete`, { memory_ids: ['marked', 'unmarked-long-term'], memType: type }, 'POST', 404)
     assert.equal(h.writes.length, 0)
     await h.request(`${P}project/memory/delete`, { memory_ids: ['marked', 'rest-marked'], memType: type })
     assert.equal(h.writes.length, 1)
-    assert.equal((await h.request(`${P}project/memory/list`, { ...query, memoryDetailType: type })).total, 0)
+    assert.equal((await h.request(`${P}project/memory/list`, { ...query, memoryDetailType: type })).total, type === 'profile_mem' ? 1 : 0)
   })
 test('I1-PROJECT: A/B/empty switch, create, restart, revoke', opts, async (t) => {
   const h = await fixture(t, 1)

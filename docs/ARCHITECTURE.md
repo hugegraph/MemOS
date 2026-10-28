@@ -1,5 +1,7 @@
 # Architecture and compatibility
 
+See [overall design rationale](DESIGN.md) for goals, alternatives, data ownership and deployment tradeoffs.
+
 ```text
 Unmodified Dashboard -- VITE_API_BASE --> server/live BFF
                                            |-- MemOS REST --> Neo4j + Qdrant
@@ -9,7 +11,7 @@ Unmodified Dashboard -- VITE_API_BASE --> server/live BFF
 server/mock remains a separate development backend
 ```
 
-The BFF owns contract validation, DTO projection, pagination/search, workspace mappings,
+The BFF owns contract validation, DTO projection, workspace mappings,
 JSONL normalization and daily usage. It is not 37 new native MemOS endpoints. The approved
 frontend baseline is `481a291e24928fc5eab5fb051b5c653fafa9cbe4`; its 67-file fingerprint gate covers
 `src`, `public`, shared frontend contracts and entry/build configuration without formatting exceptions.
@@ -19,6 +21,8 @@ frontend baseline is `481a291e24928fc5eab5fb051b5c653fafa9cbe4`; its 67-file fin
 Memory IDs and content originate from MemOS. List projections omit vectors and large source/history
 payloads, use bounded previews and a response budget; detail requests retain the full content.
 See [memory tabs](MEMORY-TABS.md) for overlapping views and explicit classification requirements.
+Memory pagination/search/count/order now run in the token-protected native query extension;
+the BFF never downloads an entire workspace to serve a page or find an ID.
 
 Dashboard deletion calls a private, authenticated, selected-ID soft-delete extension. It retains
 graph nodes and vectors, marking both deleted. It never falls back to the native legacy product
@@ -44,9 +48,16 @@ workspaces. Unknown IDs return zero, without revealing foreign data. Unkeyed his
 divided between current keys. `unattributedRecords` and `unattributedKeyRecords` describe missing
 cube/key provenance and are not disjoint totals to add together.
 
+`auditScope.diagnostics` reports rejected records and stable reason codes. Counts include the selected
+tenants plus records whose tenant cannot be established, never named foreign-tenant failures.
+They are source-wide rather than time-filtered (invalid timestamps cannot be assigned to a window).
+Unknown events remain quarantined, not invented as supported actions. The frozen frontend does not
+yet render this additive field; API diagnostics must not be described as a visible UI warning.
+Configured `tenant` must equal `userId`, which is the authenticated identity written by the gateway.
+
 ## Deliberate extensions and boundaries
 
-- MemOS: private selected-ID soft-delete module and API registration.
+- MemOS: private scoped/paginated query, selected-ID soft-delete module and API registration.
 - Optional MemOS Prompt support: scoped configuration plus narrow integration into synchronous
   plaintext fine extraction; see [Prompt scope](PROMPTS.md).
 - Gateway: file-backed verifier/registry and trusted audit decoration, composed through an
@@ -56,7 +67,8 @@ These are real upstream runtime extensions, not merely frontend configuration. K
 and document APIs use the 11 placeholders explicitly permitted by Issue #1; a successful placeholder
 write does not claim data was stored. OpenAPI documents their narrowly scoped empty/null shapes.
 
-The newer frontend includes graph/model requests outside the original 37-path contract; they are
-not implemented by this BFF. Existing frontend limitations also include the live badge, some filters,
+The newer frontend includes graph/model requests outside the original 37-path contract. Runtime model
+inventory uses a supplementary contract; graph requests remain outside this BFF's implemented scope.
+Existing frontend limitations also include the live badge, some filters,
 usage controls/full-event display and the template UI. The backend supports more than the current
 usage page renders. These limitations are not hidden by changing the frontend or test expectations.

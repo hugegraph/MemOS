@@ -12,7 +12,7 @@ class ApiTests(unittest.TestCase):
     def setUp(self):
         self.graph = Neo4jCommunityGraphDB()
         self.token = 'fixture-private-' + 'x' * 40
-        with patch.dict(os.environ, DASHBOARD_MEMORY_ENABLED='1', DASHBOARD_PROMPT_TOKEN=self.token):
+        with patch.dict(os.environ, DASHBOARD_MEMORY_ENABLED='1', DASHBOARD_MEMORY_TOKEN=self.token, DASHBOARD_PROMPT_TOKEN=self.token):
             app = FastAPI()
             install(app, self.graph)
         self.client = TestClient(app)
@@ -32,6 +32,19 @@ class ApiTests(unittest.TestCase):
         reply = self.client.get('/product/dashboard-memory/models', headers=self.headers)
         self.assertEqual(reply.status_code, 501)
         self.assertNotIn(self.token, reply.text)
+    def test_query_auth_and_contract(self):
+        body = {'user_id':'owner','mem_cube_id':'A','tab':'profile_mem','page':1,'page_size':10}
+        for headers in ({}, {'X-Dashboard-Prompt-Token':'bad'}):
+            self.assertEqual(self.client.post('/product/dashboard-memory/query',json=body,headers=headers).status_code,403)
+        with patch('memos.dashboard_memory.api.query',return_value={'rows':[],'total':0,'user_id':'owner','mem_cube_id':'A'}) as read:
+            response=self.client.post('/product/dashboard-memory/query',json=body,headers=self.headers)
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.json()['data']['total'],0)
+            read.assert_called_once_with(self.graph,body)
+        with patch('memos.dashboard_memory.api.query',side_effect=ValueError('private')):
+            response=self.client.post('/product/dashboard-memory/query',json=body,headers=self.headers)
+            self.assertEqual(response.status_code,400)
+            self.assertNotIn('private',response.text)
     def test_explicit_success_and_sync_failure_semantics(self):
         self.graph.vec_db.fail = True
         self.assertEqual(self.client.post('/product/dashboard-memory/soft-delete', json=self.body, headers=self.headers).status_code, 503)

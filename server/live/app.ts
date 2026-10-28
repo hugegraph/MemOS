@@ -1,4 +1,5 @@
 import { projectRoutes } from './projects.ts'
+import { join } from 'node:path'
 import { memoryServiceRoutes } from './memories.ts'
 import { MemOSClient } from './adapters/memos-client.ts'
 import { WorkspaceRepository } from './repositories/workspaces.ts'
@@ -35,7 +36,12 @@ export function buildRoutes(settings: Settings, dependencies: Dependencies = {})
   const client = dependencies.client ?? new MemOSClient(settings)
   const projects =
     dependencies.workspaces ??
-    new WorkspaceService(dependencies.workspaceRepository ?? new WorkspaceRepository(settings), client, settings.owner)
+    new WorkspaceService(
+      dependencies.workspaceRepository ?? new WorkspaceRepository(settings),
+      client,
+      settings.owner,
+      join(settings.dataDir, 'workspace-create-recovery.json'),
+    )
   const memories = dependencies.memories ?? new MemoryService(projects, client)
   const audit = dependencies.audit ?? new AuditService(dependencies.auditRepository ?? new AuditRepository(settings), projects)
   const usage = dependencies.usage ?? new UsageService(audit)

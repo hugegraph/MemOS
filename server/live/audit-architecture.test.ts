@@ -49,7 +49,7 @@ test('audit mapper: timezone, legacy JSON bodies, missing values and unknown too
   assert.equal(JSON.parse(detail.responseBody!), 'plain text')
   assert.equal(detail.userId, 'u')
   assert.equal(detail.eventType, 'searchMemory')
-  assert.throws(() => normalizeAuditRecord(event(3, { tool: 'future_tool' }), {} as AuditSource), /事件/)
+  assert.throws(() => normalizeAuditRecord(event(3, { tool: 'future_tool' }), {} as AuditSource), /unknown_event/)
   const legacy = toLogDetail(
     normalizeAuditRecord({ ts: event().ts, tenant: 'audit-A', tool: 'search_memory' }, { name: 'calls-x.jsonl', offset: 1, line: '{}' }),
   )

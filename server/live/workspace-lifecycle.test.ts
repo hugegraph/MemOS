@@ -87,7 +87,7 @@ test('workspace: legacy optional status does not prevent renaming a single impor
   assert.equal(service.get('A').status, 'ENABLED')
 })
 test('memory tags: six views use four buckets; tagged subsets may overlap the text view', () => {
-  const row = (id: string, type?: string, memory_type = 'UserMemory') => ({
+  const row = (id: string, type?: string, memory_type = 'WorkingMemory') => ({
     id,
     memory: id,
     metadata: { type, memory_type, status: 'activated' },

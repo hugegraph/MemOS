@@ -4,7 +4,6 @@ import addFormats from 'ajv-formats'
 import type { IncomingMessage } from 'node:http'
 import type { Settings, DashboardInput, OpenApiSpec, Operation } from './types.ts'
 import { ApiError } from './errors.ts'
-import { MemOSClient } from './adapters/memos-client.ts'
 export { ApiError } from './errors.ts'
 export { paginate, timeRange } from './query.ts'
 
@@ -35,11 +34,6 @@ export function config(env: NodeJS.ProcessEnv = process.env): Settings {
   }
 }
 
-export async function upstreamRequest(settings: Settings, path: string, body?: unknown) {
-  // Compatibility entry point; application services share an injected MemOSClient.
-  return new MemOSClient(settings).request(path, body)
-}
-
 const spec: OpenApiSpec = JSON.parse(readFileSync(new URL('../../openapi.json', import.meta.url), 'utf8'))
 const modelsSpec: OpenApiSpec = JSON.parse(readFileSync(new URL('./models.openapi.json', import.meta.url), 'utf8'))
 const ajv = new Ajv2020({ strict: false, allErrors: true })
@@ -62,15 +56,25 @@ export const operations = [spec, modelsSpec].flatMap((document) =>
 )
 
 export function validateInput(route: Operation, body: DashboardInput) {
-  // The shipped UI switches projects with id/status only; OpenAPI also requires name.
-  const validated =
-    route.path === '/api/dashboard/project/update' && body.status !== undefined && body.name === undefined ? { ...body, name: '' } : body
-  if (route.validate && !route.validate(validated)) throw new ApiError(`请求参数不符合接口定义：${ajv.errorsText(route.validate.errors)}`)
+  // Preserve the frozen frontend/OpenAPI baseline while explicitly validating its
+  // status-only PATCH semantics. Never synthesize a name in the request body.
+  const validate =
+    route.path === '/api/dashboard/project/update' && body.status !== undefined && body.name === undefined
+      ? selectionValidator
+      : route.validate
+  if (validate && !validate(body)) throw new ApiError(`请求参数不符合接口定义：${ajv.errorsText(validate.errors)}`)
   for (const key of ['pageNum', 'pageSize'] as const) {
     if (body[key] !== undefined && (!Number.isInteger(body[key]) || body[key]! < 1)) throw new ApiError(`${key} 必须为正整数`)
   }
   if (body.pageSize! > 1000) throw new ApiError('pageSize 最大为 1000')
 }
+
+const selectionSchemas = structuredClone(spec.components.schemas) as Record<string, { required?: string[] }>
+selectionSchemas.Project.required = selectionSchemas.Project.required?.filter((key) => key !== 'name')
+const selectionValidator = ajv.compile({
+  ...spec.paths['/api/dashboard/project/update'].post.requestBody!.content!['application/json'].schema,
+  components: { ...spec.components, schemas: selectionSchemas },
+})
 
 export async function readBody(req: IncomingMessage): Promise<DashboardInput> {
   if (req.method === 'GET' || req.method === 'HEAD') return {}

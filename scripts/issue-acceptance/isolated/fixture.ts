@@ -10,6 +10,7 @@ import formats from 'ajv-formats'
 import { config } from '../../../server/live/core.ts'
 import { createApp } from '../../../server/live/server.ts'
 import { buildRoutes } from '../../../server/live/app.ts'
+import { queryFixture } from '../../../server/live/query-fixture.ts'
 import type { TestContext } from 'node:test'
 import type { AddressInfo } from 'node:net'
 import type { ValidateFunction } from 'ajv'
@@ -63,7 +64,8 @@ export async function fixture(t: TestContext, count = 11) {
         for await (const chunk of req) raw += chunk
         const body = raw ? JSON.parse(raw) : {}
         let data
-        if (req.url === '/product/get_memory')
+        if (req.url === '/product/dashboard-memory/query') data = queryFixture(state.rows, body)
+        else if (req.url === '/product/get_memory')
           data = Object.fromEntries(
             ['text_mem', 'pref_mem', 'tool_mem', 'skill_mem'].map((type) => [
               type,

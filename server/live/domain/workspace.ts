@@ -10,6 +10,7 @@ export function workspaceBinding(project: unknown): WorkspaceBinding {
   const { id, userId, cubeId, tenant = userId } = (project || {}) as WorkspaceRecord
   if (![id, userId, cubeId, tenant].every((v) => typeof v === 'string' && v.trim()))
     throw new ApiError('工作区身份配置无效，需要明确 projectId/userId/cubeId/tenant', 50300, 503)
+  if (tenant !== userId) throw new ApiError('审计 tenant 必须等于网关认证 userId；请修正工作区配置', 50300, 503)
   return Object.freeze({ projectId: id, principal: Object.freeze({ userId, cubeId }), auditTenant: tenant })
 }
 

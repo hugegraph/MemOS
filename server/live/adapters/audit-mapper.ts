@@ -4,6 +4,13 @@ import type { OpenApiSpec, RawAudit, AuditRecord, AuditSource, AttributedLog, At
 
 const spec: OpenApiSpec = JSON.parse(readFileSync(new URL('../../../openapi.json', import.meta.url), 'utf8'))
 const allowedEvents = new Set(spec.components.schemas.EventType.enum)
+export class AuditParseError extends Error {
+  declare reason: string
+  constructor(reason: string) {
+    super(reason)
+    this.reason = reason
+  }
+}
 const events: Record<string, string> = {
   add_message: 'addMessage',
   search_memory: 'searchMemory',
@@ -25,11 +32,12 @@ const jsonValue = (value: unknown): unknown => {
 /** Input protocol: gateway/audit/tool_log.py. Output keeps raw for independent usage aggregation. */
 export function normalizeAuditRecord(value: unknown, source: AuditSource): AuditRecord {
   const raw = value as RawAudit
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('审计记录不是对象')
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new AuditParseError('invalid_record')
   const time = typeof raw.ts === 'string' ? Date.parse(raw.ts) : NaN
-  if (!Number.isFinite(time) || typeof raw.tenant !== 'string' || !raw.tenant.trim()) throw new Error('审计缺少时间或租户')
+  if (!Number.isFinite(time)) throw new AuditParseError('invalid_time')
+  if (typeof raw.tenant !== 'string' || !raw.tenant.trim()) throw new AuditParseError('missing_tenant')
   const eventType = events[raw.tool!] || raw.tool!
-  if (!allowedEvents.has(eventType)) throw new Error('未识别审计事件，不伪装为其他操作')
+  if (!allowedEvents.has(eventType)) throw new AuditParseError('unknown_event')
   const id = createHash('sha256').update(`${source.name}:${source.offset}:`).update(source.line).digest('hex').slice(0, 32)
   const input = jsonValue(raw.input) as { user_id?: unknown; agent_id?: unknown } | null
   return {

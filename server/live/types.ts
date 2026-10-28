@@ -127,6 +127,7 @@ export interface CubeCreator {
   createCube(body: { cube_name: string; cube_id: string; owner_id: string }): Promise<NativeEnvelope>
 }
 export interface NativeMemoryClient {
+  queryMemory?(binding: WorkspaceBinding, query: DashboardInput, ids?: string[]): Promise<{ rows: NativeMemory[]; total: number }>
   getMemory(binding: WorkspaceBinding, bucket: string): Promise<NativeEnvelope>
   deleteMemory(ids: string[], binding: WorkspaceBinding): Promise<unknown>
 }
@@ -145,6 +146,7 @@ export interface MemoryMetadata {
 }
 export interface NativeMemory {
   id: string
+  memory_truncated?: boolean
   memory?: unknown
   metadata?: MemoryMetadata | null
 }
@@ -182,6 +184,7 @@ export interface AuditScope {
   mode: string
   unattributedRecords: number
   unattributedKeyRecords?: number
+  diagnostics?: { incomplete: boolean; rejectedRecords: number; reasons: Record<string, number>; scope: string }
 }
 export interface AttributedLog extends RequestLog {
   cubeId: string | null
@@ -194,6 +197,7 @@ export interface AttributedLogDetail extends LogDetail {
 export interface AuditStorage {
   rows(): Promise<AuditRecord[]>
   badLines(): number
+  diagnostics?(tenants: string[]): { incomplete: boolean; rejectedRecords: number; reasons: Record<string, number>; scope: string }
 }
 export interface AuditWorkspaces {
   get(id: unknown): Pick<WorkspaceRecord, 'cubeId' | 'tenant'>
@@ -207,6 +211,7 @@ export interface AuditFile {
   offset: number
   rows: AuditRecord[]
   bad: number
+  rejected?: { tenant?: string; reason: string }[]
   ino?: number
   size?: number
   mtime?: number

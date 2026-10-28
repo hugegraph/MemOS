@@ -29,6 +29,7 @@ export class AuditService {
     return {
       mode: projectId && projectId !== 'all' ? 'cube' : 'configured-tenants',
       unattributedRecords: rows.filter((r) => !r.cubeId && tenants.has(r.tenant)).length,
+      diagnostics: this.repository.diagnostics?.([...tenants].filter((t): t is string => typeof t === 'string')),
     }
   }
   async list(query: DashboardInput): Promise<Page<AttributedLog, 'logs'> & { auditScope: AuditScope }> {

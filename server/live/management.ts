@@ -1,9 +1,9 @@
-import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { ApiError, paginate } from './core.ts'
 import { KeyService } from './services/keys.ts'
 import { GatewayConfigAdapter } from './adapters/gateway-config.ts'
+import { TemplateRepository } from './repositories/templates.ts'
 import type { Settings, WorkspaceReader, StoredTemplate, Routes } from './types.ts'
 import type { Dependencies } from './app.ts'
 
@@ -12,14 +12,10 @@ export function managementRoutes(settings: Settings, projects: WorkspaceReader, 
     dependencies.keys ??
     new KeyService(projects, dependencies.gatewayConfig ?? new GatewayConfigAdapter(settings.gatewayEnv), settings.dataDir)
   const file = join(settings.dataDir, 'templates.json')
-  let templates: StoredTemplate[] = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : []
-  const persist = () => {
-    writeFileSync(`${file}.tmp`, JSON.stringify(templates, null, 2), { mode: 0o600 })
-    renameSync(`${file}.tmp`, file)
-  }
+  const templates = new TemplateRepository(file)
   const getTemplate = (id: unknown, projectId: unknown) => {
     projects.get(projectId)
-    const item = templates.find((t) => t.templateId === id && t.projectId === projectId)
+    const item = templates.all().find((t) => t.templateId === id && t.projectId === projectId)
     if (!item) throw new ApiError('模板不存在', 40001, 404)
     return item
   }
@@ -28,7 +24,7 @@ export function managementRoutes(settings: Settings, projects: WorkspaceReader, 
     [`${templatePrefix}list`]: ({ body }) => {
       projects.get(body.projectId)
       const result = paginate(
-        templates.filter((t) => t.projectId === body.projectId),
+        templates.all().filter((t) => t.projectId === body.projectId),
         body,
         'list',
       )
@@ -39,20 +35,25 @@ export function managementRoutes(settings: Settings, projects: WorkspaceReader, 
       projects.get(body.projectId)
       if (!body.templateName?.trim()) throw new ApiError('模板名称不能为空')
       const item = { ...body, templateId: randomUUID(), bindingCount: 0, updatedAt: new Date().toISOString() } as StoredTemplate
-      templates.push(item)
-      persist()
+      templates.replace([...templates.all(), item])
       return item
     },
     [`${templatePrefix}update`]: ({ body }) => {
       const item = getTemplate(body.templateId, body.projectId)
-      Object.assign(item, body, { bindingCount: 0, updatedAt: new Date().toISOString() })
-      persist()
-      return item
+      const next = {
+        ...item,
+        ...body,
+        templateId: item.templateId,
+        projectId: item.projectId,
+        bindingCount: item.bindingCount,
+        updatedAt: new Date().toISOString(),
+      }
+      templates.replace(templates.all().map((r) => (r.templateId === item.templateId ? next : r)))
+      return next
     },
     [`${templatePrefix}delete`]: ({ body }) => {
       const item = getTemplate(body.templateId, body.projectId)
-      templates = templates.filter((t) => t !== item)
-      persist()
+      templates.replace(templates.all().filter((t) => t.templateId !== item.templateId))
       return { ok: true }
     },
     'POST /api/dashboard/keys/list': ({ body }) => keys.list(body),
