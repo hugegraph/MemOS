@@ -1,0 +1,44 @@
+{
+  "bff": { "url": "http://CONFIGURE-BFF.invalid", "bearerEnv": "ACCEPTANCE_BFF_TOKEN" },
+  "upstream": { "url": "http://CONFIGURE-UPSTREAM.invalid", "bearerEnv": "ACCEPTANCE_UPSTREAM_TOKEN" },
+  "maxCalls": 100,
+  "timeoutMs": 5000,
+  "maxDurationMs": 120000,
+  "workspaces": [
+    { "projectId": "CONFIGURE-A", "cubeId": "CONFIGURE-A", "userId": "CONFIGURE-A" },
+    { "projectId": "CONFIGURE-B", "cubeId": "CONFIGURE-B", "userId": "CONFIGURE-B" }
+  ],
+  "emptyWorkspace": { "projectId": "CONFIGURE-EMPTY", "cubeId": "CONFIGURE-EMPTY", "userId": "CONFIGURE-EMPTY" },
+  "frozenFixture": {
+    "workspace": { "projectId": "CONFIGURE-A", "cubeId": "CONFIGURE-A", "userId": "CONFIGURE-A" },
+    "ids": ["REPLACE-ID-1", "REPLACE-ID-2", "REPLACE-ID-3"],
+    "filters": [{ "externalUserId": "REPLACE-SUBSET-USER" }, { "memSearchContent": "REPLACE-SUBSET-TEXT" }]
+  },
+  "mutation": {
+    "enabled": false,
+    "runPrefix": "REPLACE-UNIQUE-RUN",
+    "workspace": {
+      "projectId": "CONFIGURE-DEDICATED",
+      "cubeId": "CONFIGURE-DEDICATED",
+      "userId": "CONFIGURE-DEDICATED",
+      "dedicated": false
+    },
+    "write": {
+      "path": "/product/add",
+      "idsPointer": "/data",
+      "idsField": "memory_id",
+      "body": {
+        "writable_cube_ids": ["{{cubeId}}"],
+        "async_mode": "sync",
+        "user_id": "{{userId}}",
+        "messages": [{ "role": "user", "content": "Acceptance unique marker {{marker}}" }]
+      }
+    }
+  },
+  "audit": {
+    "files": ["REPLACE-WITH-LOCAL-OR-MOUNTED/calls-YYYYMMDD.jsonl"],
+    "projectTenants": { "CONFIGURE-A": ["CONFIGURE-TENANT-A"], "CONFIGURE-B": ["CONFIGURE-TENANT-B"] },
+    "startDate": "2026-01-01",
+    "endDate": "2026-01-01"
+  }
+}

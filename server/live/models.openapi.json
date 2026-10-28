@@ -1,0 +1,61 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Dashboard live runtime models extension",
+    "version": "1.0.0",
+    "description": "Additive endpoint required by the frozen upstream models page. The original 37-operation document is unchanged."
+  },
+  "paths": {
+    "/api/dashboard/models": {
+      "get": {
+        "summary": "Read initialized native model inventory without credentials",
+        "description": "Not a model inference or provider health check. Disabled chat APIs may yield no chat rows. Missing native extension fails explicitly; no static fallback.",
+        "responses": {
+          "200": {
+            "description": "Native runtime inventory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "data", "message"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": { "const": 0 },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "required": ["records"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "records": {
+                          "type": "array",
+                          "maxItems": 64,
+                          "items": {
+                            "type": "object",
+                            "required": ["role", "model", "spec", "source", "group"],
+                            "additionalProperties": false,
+                            "properties": {
+                              "role": { "type": "string", "minLength": 1, "maxLength": 512 },
+                              "model": { "type": "string", "minLength": 1, "maxLength": 512 },
+                              "spec": { "type": "string", "maxLength": 512 },
+                              "source": { "type": "string", "minLength": 1, "maxLength": 512 },
+                              "group": { "enum": ["memory", "chat"] }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": { "description": "Native extension token/configuration missing" },
+          "502": { "description": "Native extension unavailable or malformed response" },
+          "504": { "description": "Native request timed out" }
+        }
+      }
+    }
+  },
+  "components": {}
+}

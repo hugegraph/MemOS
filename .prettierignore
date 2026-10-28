@@ -2,6 +2,7 @@ node_modules
 dist
 reference
 .data
+.letta
 pnpm-lock.yaml
 
 # 样式表是编译产物，按原样保留
