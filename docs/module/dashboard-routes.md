@@ -192,3 +192,25 @@ memories与记忆详情同形，真实记忆详情补充memoryKey/memoryType/sta
 ## 记忆详情侧栏（2026-10-31，implemented）
 
 已有memory/detail响应增加version/history/sources供基本信息、来源与版本页签使用；读取仍要求projectId与记忆归属。原事件详情补充相同元信息。当前版本号来自上游；没有历史时只显示当前内容与无历史提示，不生成假时间线。聊天评分单独走chat路由，不混用记忆纠错。
+
+### P3 Skill 管理接入（2026-11-08）
+
+### P4 后续人工裁决开发范围（2026-11-09）
+
+新增 `adjudications/prepare` 与 `adjudications/submit`，均要求 manage。固定 assessmentId 获取包；提交绑定 packageId/hash、revision、expectedSequence、operationId 与会话 actor，正文 `judgment` 分别表达任务、历史异常、使用、适用范围、违规及带事件引用的分支判断。纠正必须显式传 `supersedes`。嵌套字段白名单、枚举和数量必须检查；不开放 evidence 上传或任意宿主路径。审计仅保存 ID/序号，不保存判断理由、事件正文和分支说明。
+
+验收先覆盖管理员/owner 放行、viewer/editor 拒绝、跨项目、伪造 actor、未知字段和嵌套类型错误；由 Python 最终校验证据与事务，409 不自动重试。随后 `make check`、生成前端 OpenAPI JSON，并在 iTerm 服务与可见浏览器联调。合成测试不会成为真实人工批准。
+
+独立命名空间 `/api/v1/skills/*` 共 11 条 POST：list/detail/evidence/jobs/detail/load-preview 要求 view，evaluations/start 要求 write，reviews/prepare、reviews/decide、publish、status、challenges 要求 manage。每条都用 `InBodyStrict`，必须显式给出 projectId；不接受 actor、任意路径、命令或上游配置。新 SkillGateway 端口只代理到 Python 管理服务；SQLite 不保存发布真相，长评测只返回 jobId。
+
+字段按 P3 API 白名单逐条校验，revision/packageHash 是固定 SHA-256，expectedSequence 是非负安全整数，写入必须给 operationId 和非空 reason（评测只要求 operationId）。actor 取已认证的 `p.Actor()`。写审计只记操作标识、Skill 身份和序号，不记录 reason 或候选正文。409 不自动重试，前端必须重新读取审阅包。
+
+验收以路由权限矩阵、跨项目与客户端身份伪造拒绝、未知字段拒绝、安全错误信封和 OpenAPI 双向覆盖为准。
+
+P3 控制面验证记录：Go 1.27.3；2026-11-08 首轮完整 `make check` 通过（格式、lint 零问题、vet、全库 race/乱序测试、tidy 差异检查、文档、部署检查和二进制构建）。新增测试覆盖真实 SQLite 会话到 HTTP 上游的权限/身份传递、409 不重试、重定向不泄漏凭据、畸形/超大响应、严格项目来源、请求字段和审计脱敏。Go 测试中的上游数据是显式测试夹具，不能作为真实候选的独立评测或人工发布证明。
+
+### P4 固定实验接入
+
+新增 `experiments/list`、`experiments/detail`（view）与 `experiments/start`（write），映射上游 `experiments_list`、`experiment_detail`、`experiment_start`。清单只接受 projectId，详情增加 experimentId，开始再增加 operationId；不接收任务路径、模型参数或客户端评分报告。实验 ID 进入安全操作审计，身份和项目仍由会话决定。异步开始只返回已登记实验的状态，读取进度与报告不授予发布资格。
+
+三组固定为 none/raw_memory/skill。OpenAPI 描述冻结身份、预算、21 单元进度、分层自动评分、未知费用及 pending 人工判断；7 个独立任务不能被展开运行数替代。发布事务沿用 P3，实验 completed 不等于发布批准。新增路由在真实 SQLite 会话与 HTTP 代理测试中验证 viewer 只读、editor 开始、跨项目拒绝和伪造身份不透传。
