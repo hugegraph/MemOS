@@ -56,6 +56,8 @@ servers:
   - url: http://localhost:5280
     description: 控制台进程（与对外 /memory/* 同一个二进制，5280 端口）
 tags:
+  - name: Skill 管理
+    description: 固定版本候选、隔离评测、人工审阅发布与加载准入。
   - name: 项目
     description: 工作区。几乎所有业务接口都要它的 id。
   - name: 接口密钥
@@ -1728,8 +1730,4075 @@ paths:
       responses:
         '200':
           $ref: '#/components/responses/Ok'
+  /api/v1/skills/list:
+    post:
+      tags: [Skill 管理]
+      operationId: skill_list
+      summary: 查看 Skill 候选列表
+      description: |-
+        必须显式 projectId，要求项目 view 能力；身份从已认证会话获取。
+        只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。
+        409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [projectId]
+              properties:
+                projectId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                query:
+                  type: string
+                  maxLength: 200
+      responses:
+        '200':
+          description: 成功；candidate 保留规范 snake_case 正文
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SkillListData'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: 状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: Skill 业务校验未通过；不回显原始异常或端点
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+  /api/v1/skills/detail:
+    post:
+      tags: [Skill 管理]
+      operationId: skill_detail
+      summary: 查看固定版本与管理状态
+      description: |-
+        必须显式 projectId，要求项目 view 能力；身份从已认证会话获取。
+        只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。
+        409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [projectId, skillId, revision]
+              properties:
+                projectId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                skillId:
+                  type: string
+                  pattern: "^[a-z0-9][a-z0-9-]{0,79}$"
+                revision:
+                  type: string
+                  pattern: "^[a-f0-9]{64}$"
+      responses:
+        '200':
+          description: 成功；candidate 保留规范 snake_case 正文
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SkillDetailData'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: 状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: Skill 业务校验未通过；不回显原始异常或端点
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+  /api/v1/skills/evidence:
+    post:
+      tags: [Skill 管理]
+      operationId: skill_evidence
+      summary: 查看规则来源证据
+      description: |-
+        必须显式 projectId，要求项目 view 能力；身份从已认证会话获取。
+        只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。
+        409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [projectId, skillId, revision, ruleId]
+              properties:
+                projectId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                skillId:
+                  type: string
+                  pattern: "^[a-z0-9][a-z0-9-]{0,79}$"
+                revision:
+                  type: string
+                  pattern: "^[a-f0-9]{64}$"
+                ruleId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+      responses:
+        '200':
+          description: 成功；candidate 保留规范 snake_case 正文
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SkillEvidenceData'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: 状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: Skill 业务校验未通过；不回显原始异常或端点
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+  /api/v1/skills/evaluations/start:
+    post:
+      tags: [Skill 管理]
+      operationId: skill_evaluate
+      summary: 启动隔离候选评测
+      description: |-
+        必须显式 projectId，要求项目 write 能力；身份从已认证会话获取。
+        只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。
+        409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [projectId, skillId, revision, caseId, operationId]
+              properties:
+                projectId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                skillId:
+                  type: string
+                  pattern: "^[a-z0-9][a-z0-9-]{0,79}$"
+                revision:
+                  type: string
+                  pattern: "^[a-f0-9]{64}$"
+                caseId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                operationId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+      responses:
+        '200':
+          description: 成功；candidate 保留规范 snake_case 正文
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SkillJobData'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: 状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: Skill 业务校验未通过；不回显原始异常或端点
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+  /api/v1/skills/runs/start:
+    post:
+      tags: [Skill 管理]
+      operationId: skill_run
+      summary: 使用已发布固定版本运行任务
+      description: |-
+        必须显式 projectId，要求项目 write 能力；身份从已认证会话获取。
+        只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。
+        409 必须重新读取状态和审阅包，禁止自动重试人工批准。服务器固定 normal 模式并重新检查发布、来源和工具准入；返回 jobId，由后续轮询取结果。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [projectId, skillId, revision, caseId, operationId]
+              properties:
+                projectId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                skillId:
+                  type: string
+                  pattern: "^[a-z0-9][a-z0-9-]{0,79}$"
+                revision:
+                  type: string
+                  pattern: "^[a-f0-9]{64}$"
+                caseId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                operationId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+      responses:
+        '200':
+          description: 成功；candidate 保留规范 snake_case 正文
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SkillJobData'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: 状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: Skill 业务校验未通过；不回显原始异常或端点
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+  /api/v1/skills/jobs/detail:
+    post:
+      tags: [Skill 管理]
+      operationId: skill_job
+      summary: 查看异步评测结果
+      description: |-
+        必须显式 projectId，要求项目 view 能力；身份从已认证会话获取。
+        只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。
+        409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [projectId, jobId]
+              properties:
+                projectId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                jobId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+      responses:
+        '200':
+          description: 成功；candidate 保留规范 snake_case 正文
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SkillJobData'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: 状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: Skill 业务校验未通过；不回显原始异常或端点
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+  /api/v1/skills/jobs/reconcile:
+    post:
+      tags: [Skill 管理]
+      operationId: skill_job_reconcile
+      summary: 核验已完成工件并追加历史反馈
+      description: |-
+        必须显式 projectId，要求项目 manage 能力；身份从已认证会话获取。
+        只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。
+        409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [projectId, jobId, operationId]
+              properties:
+                projectId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                operationId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                jobId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+      responses:
+        '200':
+          description: 成功；candidate 保留规范 snake_case 正文
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SkillJobData'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: 状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: Skill 业务校验未通过；不回显原始异常或端点
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+  /api/v1/skills/adjudications/prepare:
+    post:
+      tags:
+      - Skill 管理
+      operationId: skill_adjudication_prepare
+      summary: 冻结执行证据人工裁决包
+      description: 要求项目 manage；固定 assessmentId。仅读取宿主核验的证据，不接收路径或客户端验收报告。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - projectId
+              - skillId
+              - revision
+              - assessmentId
+              properties:
+                projectId:
+                  type: string
+                  pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$
+                skillId:
+                  type: string
+                  pattern: ^[a-z0-9][a-z0-9-]{0,79}$
+                revision:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                assessmentId:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+      responses:
+        '200':
+          description: 成功；candidate 保留规范 snake_case 正文
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Envelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/SkillAdjudicationPackage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: 状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: Skill 业务校验未通过；不回显原始异常或端点
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+  /api/v1/skills/adjudications/submit:
+    post:
+      tags:
+      - Skill 管理
+      operationId: skill_adjudicate
+      summary: 追加人工裁决与逐分支证据判断
+      description: 要求项目 manage；绑定包、版本和 sequence。纠正须显式 supersedes。不会自动发布，409 不自动重试。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkillAdjudicationRequest'
+      responses:
+        '200':
+          description: 成功；candidate 保留规范 snake_case 正文
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Envelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/SkillAdjudicationResult'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: 状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: Skill 业务校验未通过；不回显原始异常或端点
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+  /api/v1/skills/reviews/prepare:
+    post:
+      tags: [Skill 管理]
+      operationId: skill_review_prepare
+      summary: 准备绑定证据的人工审阅包
+      description: |-
+        必须显式 projectId，要求项目 manage 能力；身份从已认证会话获取。
+        只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。
+        409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [projectId, skillId, revision]
+              properties:
+                projectId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                skillId:
+                  type: string
+                  pattern: "^[a-z0-9][a-z0-9-]{0,79}$"
+                revision:
+                  type: string
+                  pattern: "^[a-f0-9]{64}$"
+      responses:
+        '200':
+          description: 成功；candidate 保留规范 snake_case 正文
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SkillReviewPackage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: 状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: Skill 业务校验未通过；不回显原始异常或端点
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+  /api/v1/skills/reviews/decide:
+    post:
+      tags: [Skill 管理]
+      operationId: skill_review_decide
+      summary: 要求补证据或阻断发布
+      description: |-
+        必须显式 projectId，要求项目 manage 能力；身份从已认证会话获取。
+        只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。
+        409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [projectId, skillId, revision, expectedSequence, operationId, decision, reason]
+              properties:
+                projectId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                skillId:
+                  type: string
+                  pattern: "^[a-z0-9][a-z0-9-]{0,79}$"
+                revision:
+                  type: string
+                  pattern: "^[a-f0-9]{64}$"
+                expectedSequence:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                operationId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                decision:
+                  type: string
+                  enum: [needs_evidence, block]
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+      responses:
+        '200':
+          description: 成功；candidate 保留规范 snake_case 正文
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SkillManagement'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: 状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: Skill 业务校验未通过；不回显原始异常或端点
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+  /api/v1/skills/publish:
+    post:
+      tags: [Skill 管理]
+      operationId: skill_publish
+      summary: 人工发布固定版本
+      description: |-
+        必须显式 projectId，要求项目 manage 能力；身份从已认证会话获取。
+        只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。
+        409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [projectId, skillId, revision, packageId, packageHash, expectedSequence, operationId, reason]
+              properties:
+                projectId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                skillId:
+                  type: string
+                  pattern: "^[a-z0-9][a-z0-9-]{0,79}$"
+                revision:
+                  type: string
+                  pattern: "^[a-f0-9]{64}$"
+                packageId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                packageHash:
+                  type: string
+                  pattern: "^[a-f0-9]{64}$"
+                expectedSequence:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                operationId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+      responses:
+        '200':
+          description: 成功；candidate 保留规范 snake_case 正文
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SkillManagement'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: 状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: Skill 业务校验未通过；不回显原始异常或端点
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+  /api/v1/skills/status:
+    post:
+      tags: [Skill 管理]
+      operationId: skill_status
+      summary: 暂停或撤回版本
+      description: |-
+        必须显式 projectId，要求项目 manage 能力；身份从已认证会话获取。
+        只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。
+        409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [projectId, skillId, revision, expectedSequence, operationId, action, reason]
+              properties:
+                projectId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                skillId:
+                  type: string
+                  pattern: "^[a-z0-9][a-z0-9-]{0,79}$"
+                revision:
+                  type: string
+                  pattern: "^[a-f0-9]{64}$"
+                expectedSequence:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                operationId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                action:
+                  type: string
+                  enum: [pause, withdraw]
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+      responses:
+        '200':
+          description: 成功；candidate 保留规范 snake_case 正文
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SkillManagement'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: 状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: Skill 业务校验未通过；不回显原始异常或端点
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+  /api/v1/skills/challenges:
+    post:
+      tags: [Skill 管理]
+      operationId: skill_challenge
+      summary: 登记反例挑战
+      description: |-
+        必须显式 projectId，要求项目 manage 能力；身份从已认证会话获取。
+        只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。
+        409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [projectId, skillId, revision, expectedSequence, operationId, reason]
+              properties:
+                projectId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                skillId:
+                  type: string
+                  pattern: "^[a-z0-9][a-z0-9-]{0,79}$"
+                revision:
+                  type: string
+                  pattern: "^[a-f0-9]{64}$"
+                expectedSequence:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                operationId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+      responses:
+        '200':
+          description: 成功；candidate 保留规范 snake_case 正文
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SkillManagement'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: 状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: Skill 业务校验未通过；不回显原始异常或端点
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+  /api/v1/skills/load-preview:
+    post:
+      tags: [Skill 管理]
+      operationId: skill_load_preview
+      summary: 预览 Claude Code 正式加载准入
+      description: |-
+        必须显式 projectId，要求项目 view 能力；身份从已认证会话获取。
+        只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。
+        409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [projectId, skillId, revision, caseId, mode]
+              properties:
+                projectId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                skillId:
+                  type: string
+                  pattern: "^[a-z0-9][a-z0-9-]{0,79}$"
+                revision:
+                  type: string
+                  pattern: "^[a-f0-9]{64}$"
+                caseId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$"
+                mode:
+                  type: string
+                  enum: [normal]
+      responses:
+        '200':
+          description: 成功；candidate 保留规范 snake_case 正文
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SkillLoadPreview'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: 状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: Skill 业务校验未通过；不回显原始异常或端点
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+  /api/v1/skills/experiments/list:
+    post:
+      tags:
+      - Skill 管理
+      operationId: skill_experiments_list
+      summary: 列出冻结三组实验
+      description: 显式项目身份，要求 view 能力。只接受宿主登记的 experimentId，不接受路径、代码、模型配置或报告上传。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - projectId
+              properties:
+                projectId:
+                  type: string
+                  pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$
+              additionalProperties: false
+      responses:
+        '200':
+          description: 成功；完成不等于发布批准，人工评分仍可待审
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Envelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/SkillExperimentList'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+        '409':
+          description: 实验冲突或校验失败；不自动重试开始
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: 实验冲突或校验失败；不自动重试开始
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+  /api/v1/skills/experiments/detail:
+    post:
+      tags:
+      - Skill 管理
+      operationId: skill_experiment_detail
+      summary: 读取实验进度与分层评分
+      description: 显式项目身份，要求 view 能力。只接受宿主登记的 experimentId，不接受路径、代码、模型配置或报告上传。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - projectId
+              - experimentId
+              properties:
+                projectId:
+                  type: string
+                  pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$
+                experimentId:
+                  type: string
+                  pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$
+              additionalProperties: false
+      responses:
+        '200':
+          description: 成功；完成不等于发布批准，人工评分仍可待审
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Envelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/SkillExperimentDetail'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+        '409':
+          description: 实验冲突或校验失败；不自动重试开始
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: 实验冲突或校验失败；不自动重试开始
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+  /api/v1/skills/experiments/start:
+    post:
+      tags:
+      - Skill 管理
+      operationId: skill_experiment_start
+      summary: 异步开始已登记固定实验
+      description: 显式项目身份，要求 write 能力。只接受宿主登记的 experimentId，不接受路径、代码、模型配置或报告上传。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - projectId
+              - experimentId
+              - operationId
+              properties:
+                projectId:
+                  type: string
+                  pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$
+                experimentId:
+                  type: string
+                  pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$
+                operationId:
+                  type: string
+                  pattern: ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$
+              additionalProperties: false
+      responses:
+        '200':
+          description: 成功；完成不等于发布批准，人工评分仍可待审
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Envelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/SkillExperimentSummary'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+        '409':
+          description: 实验冲突或校验失败；不自动重试开始
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: 实验冲突或校验失败；不自动重试开始
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+  /api/v1/skills/lifecycle/scan:
+    post:
+      tags:
+      - Skill 管理
+      operationId: skill_impact_scan
+      summary: 实际检查来源与工具
+      description: 要求项目 manage；actor 来自会话。只接受固定版本、包和摘要引用，不接受路径、命令或客户端观察。恢复须新验证；替代须健康已发布版本，不自动重绑依赖。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkillImpactScanRequest'
+      responses:
+        '200':
+          description: 成功，返回当前固定投影
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Envelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/SkillImpactScanResult'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+        '409':
+          description: 安全错误码与可选当前序号；不自动重试
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: 安全错误码与可选当前序号；不自动重试
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+  /api/v1/skills/lifecycle/prepare:
+    post:
+      tags:
+      - Skill 管理
+      operationId: skill_impact_prepare
+      summary: 冻结生命周期与挑战审阅包
+      description: 要求项目 manage；actor 来自会话。只接受固定版本、包和摘要引用，不接受路径、命令或客户端观察。恢复须新验证；替代须健康已发布版本，不自动重绑依赖。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkillImpactPrepareRequest'
+      responses:
+        '200':
+          description: 成功，返回当前固定投影
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Envelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/SkillLifecyclePackage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+        '409':
+          description: 安全错误码与可选当前序号；不自动重试
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: 安全错误码与可选当前序号；不自动重试
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+  /api/v1/skills/lifecycle/review:
+    post:
+      tags:
+      - Skill 管理
+      operationId: skill_impact_review
+      summary: 提交恢复、保留或版本替代决定
+      description: 要求项目 manage；actor 来自会话。只接受固定版本、包和摘要引用，不接受路径、命令或客户端观察。恢复须新验证；替代须健康已发布版本，不自动重绑依赖。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkillImpactReviewRequest'
+      responses:
+        '200':
+          description: 成功，返回当前固定投影
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Envelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/SkillLifecycleMutationResult'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+        '409':
+          description: 安全错误码与可选当前序号；不自动重试
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: 安全错误码与可选当前序号；不自动重试
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+  /api/v1/skills/challenges/resolve:
+    post:
+      tags:
+      - Skill 管理
+      operationId: skill_challenge_resolve
+      summary: 追加历史挑战处置
+      description: 要求项目 manage；actor 来自会话。只接受固定版本、包和摘要引用，不接受路径、命令或客户端观察。恢复须新验证；替代须健康已发布版本，不自动重绑依赖。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkillChallengeResolveRequest'
+      responses:
+        '200':
+          description: 成功，返回当前固定投影
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Envelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/SkillLifecycleMutationResult'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '503':
+          $ref: '#/components/responses/ErrorUnavailable'
+        '409':
+          description: 安全错误码与可选当前序号；不自动重试
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
+        '422':
+          description: 安全错误码与可选当前序号；不自动重试
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillErrorEnvelope'
 components:
   schemas:
+    SkillExperimentSummary:
+      type: object
+      required:
+      - experimentId
+      - skillId
+      - revision
+      - manifestHash
+      - status
+      - planned
+      - completed
+      properties:
+        experimentId: &id001
+          type: string
+        skillId: *id001
+        revision: *id001
+        manifestHash: *id001
+        status:
+          type: string
+          enum:
+          - frozen
+          - running
+          - completed
+          - interrupted
+        planned: &id002
+          type: integer
+          minimum: 0
+        completed: *id002
+    SkillExperimentRow:
+      type: object
+      required:
+      - cellId
+      - caseId
+      - group
+      - status
+      - assessmentKind
+      - repairPass
+      - boundaryPass
+      - branchSupported
+      - criticalViolation
+      - manualReview
+      - taskAccepted
+      - receiptVerified
+      - loading
+      - capture
+      - elapsedSeconds
+      - reportedCostUsd
+      - toolCalls
+      - failureReasons
+      properties:
+        cellId: *id001
+        caseId: *id001
+        group: &id005
+          type: string
+          enum:
+          - none
+          - raw_memory
+          - skill
+        status:
+          type: string
+          enum:
+          - queued
+          - running
+          - passed
+          - failed
+          - unknown
+          - infra_invalid
+        assessmentKind:
+          type: string
+          enum:
+          - repair
+          - boundary_repair
+          - manual_boundary
+        repairPass:
+          type: integer
+          enum:
+          - 0
+          - 1
+          nullable: true
+        boundaryPass:
+          type: integer
+          enum:
+          - 0
+          - 1
+          nullable: true
+        branchSupported:
+          type: boolean
+          nullable: true
+        criticalViolation:
+          type: boolean
+          nullable: true
+        manualReview:
+          type: string
+          enum:
+          - pending
+        taskAccepted: &id003
+          type: boolean
+        receiptVerified: *id003
+        loading: *id001
+        capture: *id001
+        elapsedSeconds: &id004
+          type: number
+          minimum: 0
+          nullable: true
+        reportedCostUsd: *id004
+        toolCalls:
+          type: integer
+          minimum: 0
+          nullable: true
+        failureReasons:
+          type: array
+          items: *id001
+    SkillExperimentGroupScore:
+      type: object
+      required:
+      - group
+      - primaryRepair
+      - boundary
+      - unknown
+      - infraInvalid
+      - elapsedSeconds
+      - reportedCostUsd
+      - costUnknown
+      properties:
+        group: *id005
+        primaryRepair:
+          type: object
+          required:
+          - passed
+          - denominator
+          - planned
+          properties:
+            passed: *id002
+            denominator: *id002
+            planned: *id002
+        boundary:
+          type: object
+          required:
+          - taskSolved
+          - planned
+          - pendingReview
+          properties:
+            taskSolved: *id002
+            planned: *id002
+            pendingReview: *id002
+        unknown: *id002
+        infraInvalid: *id002
+        elapsedSeconds: *id004
+        reportedCostUsd: *id004
+        costUnknown: *id002
+    SkillExperimentDetail:
+      allOf:
+      - $ref: '#/components/schemas/SkillExperimentSummary'
+      - type: object
+        required:
+        - groups
+        - budget
+        - rows
+        - summary
+        - publication
+        - limitations
+        properties:
+          groups:
+            type: array
+            items: *id005
+          budget:
+            type: object
+            required:
+            - timeoutSeconds
+            - maxTurns
+            - maxBudgetUsd
+            - contextBytes
+            properties:
+              timeoutSeconds:
+                type: number
+                minimum: 1
+              maxTurns: *id002
+              maxBudgetUsd:
+                type: number
+                minimum: 0
+              contextBytes: *id002
+          rows:
+            type: array
+            items:
+              $ref: '#/components/schemas/SkillExperimentRow'
+          summary:
+            type: object
+            required:
+            - groups
+            - completePairs
+            properties:
+              groups:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SkillExperimentGroupScore'
+              completePairs: *id002
+          publication:
+            type: string
+            enum:
+            - not_approved
+          limitations:
+            type: array
+            items: *id001
+    SkillExperimentList:
+      type: object
+      required:
+      - items
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SkillExperimentSummary'
+        total: *id002
+    SkillErrorEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/ErrorEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                errorCode:
+                  type: string
+                currentSequence:
+                  type: integer
+                  minimum: 0
+    SkillReadiness:
+      type: object
+      required: [status, reasons]
+      properties:
+        status:
+          type: string
+        reasons:
+          type: array
+          items:
+            type: string
+    SkillManagement:
+      type: object
+      description: Neo4j 管理真相；revision 不变，sequence 用于乐观并发控制。
+      properties:
+        state:
+          type: string
+        sequence:
+          type: integer
+        releaseId:
+          type: string
+        readiness:
+          $ref: '#/components/schemas/SkillReadiness'
+        challenges:
+          type: array
+          items:
+            type: object
+    SkillListData:
+      type: object
+      required: [items, total]
+      properties:
+        total:
+          type: integer
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              skillId:
+                type: string
+              revision:
+                type: string
+              title:
+                type: string
+              purpose:
+                type: string
+              tags:
+                type: array
+                items:
+                  type: string
+              state:
+                type: string
+              sequence:
+                type: integer
+              readiness:
+                $ref: '#/components/schemas/SkillReadiness'
+              ruleCount:
+                type: integer
+              validationCount:
+                type: integer
+    SkillImpactScanRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - projectId
+      - skillId
+      - revision
+      - expectedSequence
+      - operationId
+      - reason
+      properties:
+        projectId:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$
+        skillId:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9-]{0,79}$
+        revision:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        expectedSequence:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        operationId:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+    SkillImpactPrepareRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - projectId
+      - skillId
+      - revision
+      properties:
+        projectId:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$
+        skillId:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9-]{0,79}$
+        revision:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+    SkillImpactReviewRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - projectId
+      - skillId
+      - revision
+      - expectedSequence
+      - operationId
+      - reason
+      - packageId
+      - packageHash
+      - decision
+      - rootIds
+      - validationIds
+      - replacementRevision
+      properties:
+        projectId:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$
+        skillId:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9-]{0,79}$
+        revision:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        expectedSequence:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        operationId:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        packageId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        packageHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        decision:
+          type: string
+          enum:
+          - restore
+          - retain
+          - supersede
+        rootIds:
+          type: array
+          items:
+            type: string
+            pattern: ^[a-f0-9]{64}$
+          uniqueItems: true
+          maxItems: 200
+        validationIds:
+          type: array
+          items:
+            type: string
+            pattern: ^[a-f0-9]{64}$
+          uniqueItems: true
+          maxItems: 200
+        replacementRevision:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+          nullable: true
+    SkillChallengeResolveRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - projectId
+      - skillId
+      - revision
+      - expectedSequence
+      - operationId
+      - reason
+      - packageId
+      - packageHash
+      - challengeId
+      - decision
+      - evidenceIds
+      - replacementRevision
+      properties:
+        projectId:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$
+        skillId:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9-]{0,79}$
+        revision:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        expectedSequence:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        operationId:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        packageId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        packageHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        challengeId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        decision:
+          type: string
+          enum:
+          - addressed
+          - upheld
+          - superseded
+        evidenceIds:
+          type: array
+          items:
+            type: string
+            pattern: ^[a-f0-9]{64}$
+          uniqueItems: true
+          maxItems: 200
+        replacementRevision:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+          nullable: true
+    SkillDependencyRelease:
+      type: object
+      additionalProperties: false
+      required:
+      - skillId
+      - revision
+      - releaseId
+      properties:
+        skillId:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9-]{0,79}$
+        revision:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        releaseId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+    SkillLifecycle:
+      type: object
+      additionalProperties: false
+      required:
+      - schemaVersion
+      - enabled
+      - watermark
+      - subjects
+      - roots
+      - observations
+      - decisions
+      - dependencies
+      - gate
+      properties:
+        schemaVersion:
+          type: integer
+          enum:
+          - 1
+        enabled:
+          type: boolean
+        watermark:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        subjects:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - subjectId
+            - kind
+            - expectedDigest
+            - observedDigest
+            - status
+            - observationId
+            properties:
+              subjectId:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+              kind:
+                type: string
+                enum:
+                - memory
+                - tool
+              expectedDigest:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+              observedDigest:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+                nullable: true
+              status:
+                type: string
+                enum:
+                - healthy
+                - changed
+                - unavailable
+                - invalid
+                - restored
+              observationId:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+                nullable: true
+        roots:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - rootId
+            - originSkillId
+            - originRevision
+            - subjectId
+            - kind
+            - status
+            - latestObservationId
+            - paths
+            - reason
+            properties:
+              rootId:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+              originSkillId:
+                type: string
+                pattern: ^[a-z0-9][a-z0-9-]{0,79}$
+              originRevision:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+              subjectId:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+              kind:
+                type: string
+                enum:
+                - memory
+                - tool
+              status:
+                type: string
+                enum:
+                - active
+                - restored_pending
+              latestObservationId:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+              paths:
+                type: array
+                items:
+                  type: array
+                  items:
+                    type: string
+              reason:
+                type: string
+        observations:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - observationId
+            - subjectId
+            - kind
+            - expectedDigest
+            - observedDigest
+            - status
+            - previousObservationId
+            - detectorVersion
+            - reason
+            - observedAt
+            properties:
+              observationId:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+              subjectId:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+              kind:
+                type: string
+                enum:
+                - memory
+                - tool
+              expectedDigest:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+              observedDigest:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+                nullable: true
+              status:
+                type: string
+                enum:
+                - healthy
+                - changed
+                - unavailable
+                - invalid
+                - restored
+              previousObservationId:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+                nullable: true
+              detectorVersion:
+                type: string
+              reason:
+                type: string
+              observedAt:
+                type: string
+        decisions:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - decisionId
+            - action
+            - actor
+            - reason
+            - decidedAt
+            - evidenceIds
+            properties:
+              decisionId:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+              action:
+                type: string
+              actor:
+                type: string
+              reason:
+                type: string
+              decidedAt:
+                type: string
+              evidenceIds:
+                type: array
+                items:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                uniqueItems: true
+                maxItems: 200
+        dependencies:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - skillId
+            - revision
+            - releaseId
+            - state
+            - allowed
+            properties:
+              skillId:
+                type: string
+                pattern: ^[a-z0-9][a-z0-9-]{0,79}$
+              revision:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+              releaseId:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+                nullable: true
+              state:
+                type: string
+              allowed:
+                type: boolean
+        gate:
+          type: object
+          additionalProperties: false
+          required:
+          - status
+          - reasons
+          properties:
+            status:
+              type: string
+              enum:
+              - PASS
+              - BLOCK
+            reasons:
+              type: array
+              items:
+                type: string
+    SkillLifecyclePackage:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - projectId
+      - skillId
+      - revision
+      - sequence
+      - contentHash
+      - exportHash
+      - sourceWatermark
+      - lifecycleWatermark
+      - activeRootIds
+      - currentChallengeIds
+      - evidenceIds
+      - dependencyReleases
+      - actor
+      - preparedAt
+      - packageId
+      - packageHash
+      properties:
+        kind:
+          type: string
+          enum:
+          - lifecycle
+        projectId:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$
+        skillId:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9-]{0,79}$
+        revision:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        sequence:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        contentHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        exportHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+          nullable: true
+        sourceWatermark:
+          type: array
+          items:
+            type: string
+            pattern: ^[a-f0-9]{64}$
+          uniqueItems: true
+          maxItems: 200
+        lifecycleWatermark:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        activeRootIds:
+          type: array
+          items:
+            type: string
+            pattern: ^[a-f0-9]{64}$
+          uniqueItems: true
+          maxItems: 200
+        currentChallengeIds:
+          type: array
+          items:
+            type: string
+            pattern: ^[a-f0-9]{64}$
+          uniqueItems: true
+          maxItems: 200
+        evidenceIds:
+          type: array
+          items:
+            type: string
+            pattern: ^[a-f0-9]{64}$
+          uniqueItems: true
+          maxItems: 200
+        dependencyReleases:
+          type: array
+          items:
+            $ref: '#/components/schemas/SkillDependencyRelease'
+        actor:
+          type: string
+        preparedAt:
+          type: string
+        packageId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        packageHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+    SkillImpactScanResult:
+      type: object
+      additionalProperties: false
+      required:
+      - sequence
+      - changed
+      - lifecycle
+      properties:
+        sequence:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        changed:
+          type: boolean
+        lifecycle:
+          $ref: '#/components/schemas/SkillLifecycle'
+    SkillLifecycleMutationResult:
+      type: object
+      additionalProperties: false
+      required:
+      - state
+      - sequence
+      - lifecycle
+      properties:
+        state:
+          type: string
+        sequence:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        lifecycle:
+          $ref: '#/components/schemas/SkillLifecycle'
+    SkillDetailData:
+      type: object
+      required: [projectId, candidate, management, validations, jobs, releases, caseOptions]
+      properties:
+        lifecycle:
+          $ref: '#/components/schemas/SkillLifecycle'
+        projectId:
+          type: string
+        candidate:
+          type: object
+          description: P2 规范候选，snake_case，不包含原始运行目录或 oracle。
+        management:
+          $ref: '#/components/schemas/SkillManagement'
+        validations:
+          type: array
+          items:
+            type: object
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/SkillJobData'
+        releases:
+          type: array
+          items:
+            type: object
+        caseOptions:
+          type: array
+          items:
+            type: object
+            properties:
+              caseId:
+                type: string
+              title:
+                type: string
+    SkillEvidenceData:
+      type: object
+      properties:
+        rule:
+          type: object
+        facts:
+          type: array
+          items:
+            type: object
+    SkillJobData:
+      type: object
+      properties:
+        jobId:
+          type: string
+        status:
+          type: string
+        skillId:
+          type: string
+        revision:
+          type: string
+        caseId:
+          type: string
+        mode:
+          type: string
+        taskResult:
+          type: object
+          nullable: true
+        skillUsage:
+          type: object
+          nullable: true
+        validationId:
+          type: string
+          nullable: true
+        errorCode:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        feedbackRecovery:
+          type: object
+          description: 追加恢复记录；原 unknown 和 errorCode 保留，不计独立分支覆盖。
+          required: [recoveryId, validationId, evidenceDigest, actor, recoveredAt, status, taskResult, skillUsage]
+          properties:
+            recoveryId:
+              type: string
+            validationId:
+              type: string
+            evidenceDigest:
+              type: string
+            actor:
+              type: string
+            recoveredAt:
+              type: string
+              format: date-time
+            status:
+              type: string
+            taskResult:
+              type: object
+            skillUsage:
+              type: object
+    SkillBranchClaim:
+      type: object
+      additionalProperties: false
+      required:
+      - branchId
+      - conditionRefs
+      - actionRefs
+      - checkRefs
+      - reason
+      properties:
+        branchId:
+          type: string
+        conditionRefs:
+          type: array
+          items:
+            type: string
+        actionRefs:
+          type: array
+          items:
+            type: string
+        checkRefs:
+          type: array
+          items:
+            type: string
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+    SkillJudgment:
+      type: object
+      additionalProperties: false
+      required:
+      - taskDecision
+      - historyDecision
+      - usageDecision
+      - applicability
+      - boundary
+      - violations
+      - reason
+      - eventRefs
+      - branches
+      properties:
+        taskDecision:
+          type: string
+          enum:
+          - repair_confirmed
+          - healthy_confirmed
+          - unresolved_confirmed
+          - stop_confirmed
+          - failed
+          - needs_evidence
+        historyDecision:
+          type: string
+          enum:
+          - retain
+          - infra_explained
+        usageDecision:
+          type: string
+          enum:
+          - correct
+          - misused
+          - not_used
+          - unknown
+        applicability:
+          type: string
+          enum:
+          - in_scope
+          - out_of_scope
+          - unknown
+        boundary:
+          type: string
+          nullable: true
+          enum:
+          - not_applicable
+          - needs_evidence
+          - unresolved
+          - null
+        violations:
+          type: string
+          enum:
+          - none
+          - serious
+          - unknown
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        eventRefs:
+          type: array
+          items:
+            type: string
+        branches:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/SkillBranchClaim'
+    SkillAdjudicationRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - projectId
+      - skillId
+      - revision
+      - expectedSequence
+      - operationId
+      - reason
+      - packageId
+      - packageHash
+      - judgment
+      properties:
+        projectId:
+          type: string
+        skillId:
+          type: string
+        revision:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        expectedSequence:
+          type: integer
+          minimum: 0
+        operationId:
+          type: string
+        reason:
+          type: string
+        packageId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        packageHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        judgment:
+          $ref: '#/components/schemas/SkillJudgment'
+        supersedes:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+          nullable: true
+    SkillAssessment:
+      oneOf:
+      - $ref: '#/components/schemas/SkillHistoricalAssessment'
+      - $ref: '#/components/schemas/SkillReleaseAssessment'
+      - $ref: '#/components/schemas/SkillP5Assessment'
+    SkillHistoricalAssessment:
+      type: object
+      additionalProperties: true
+      required:
+      - assessmentId
+      - validationId
+      - contentHash
+      - exportHash
+      - candidateSnapshot
+      - reportSha256
+      - eventsSha256
+      - coveragePlanHash
+      - caseId
+      - captureComplete
+      - loadVerified
+      - behaviorChanged
+      - originalStatus
+      - verification
+      - checks
+      - events
+      - branchCandidates
+      properties:
+        assessmentId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        validationId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        contentHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        exportHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        candidateSnapshot:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        reportSha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        eventsSha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        coveragePlanHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        caseId:
+          type: string
+        captureComplete:
+          type: boolean
+        loadVerified:
+          type: boolean
+        behaviorChanged:
+          type: boolean
+        originalStatus:
+          type: string
+        verification:
+          type: object
+          additionalProperties: false
+          required:
+          - status
+          - receiptSha256
+          - protocol
+          - matches
+          - sameFinalPatch
+          - posthoc
+          properties:
+            status:
+              type: string
+            receiptSha256:
+              type: string
+              pattern: ^[a-f0-9]{64}$
+            protocol:
+              type: string
+            matches:
+              type: boolean
+            sameFinalPatch:
+              type: boolean
+            posthoc:
+              type: boolean
+        checks:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - name
+            - status
+            properties:
+              name:
+                type: string
+              status:
+                type: string
+        events:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - id
+            - kind
+            - value
+            properties:
+              id:
+                type: string
+              kind:
+                type: string
+              value:
+                type: object
+                additionalProperties: true
+        branchCandidates:
+          type: array
+          items:
+            type: string
+        schemaVersion:
+          type: integer
+          enum:
+          - 1
+          - 2
+          - 3
+          - 4
+          - 5
+    SkillReleaseAssessment:
+      type: object
+      additionalProperties: false
+      required:
+      - assessmentId
+      - validationId
+      - contentHash
+      - exportHash
+      - candidateSnapshot
+      - reportSha256
+      - eventsSha256
+      - coveragePlanHash
+      - caseId
+      - captureComplete
+      - loadVerified
+      - behaviorChanged
+      - originalStatus
+      - verification
+      - checks
+      - events
+      - branchCandidates
+      - schemaVersion
+      - collectorVersion
+      - collectorDigest
+      - runId
+      - attemptId
+      - caseRevision
+      - lineageId
+      - split
+      - purpose
+      - initialVerification
+      - publicVerification
+      - outcome
+      - batchId
+      - taskDigest
+      - suiteId
+      - checkMapping
+      - processVerification
+      - intermediateVerifications
+      - taskOutcome
+      - executionQualification
+      properties:
+        assessmentId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        validationId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        contentHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        exportHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        candidateSnapshot:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        reportSha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        eventsSha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        coveragePlanHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        caseId:
+          type: string
+        captureComplete:
+          type: boolean
+        loadVerified:
+          type: boolean
+        behaviorChanged:
+          type: boolean
+        originalStatus:
+          type: string
+        verification:
+          type: object
+          additionalProperties: false
+          required:
+          - status
+          - receiptSha256
+          - protocol
+          - matches
+          - sameFinalPatch
+          - posthoc
+          properties:
+            status:
+              type: string
+              enum:
+              - passed
+              - failed
+              - error
+            receiptSha256:
+              type: string
+              pattern: ^[a-f0-9]{64}$
+            protocol:
+              type: string
+              enum:
+              - release-receipt-1
+            matches:
+              type: boolean
+            sameFinalPatch:
+              type: boolean
+            posthoc:
+              type: boolean
+              enum:
+              - false
+        checks:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - name
+            - status
+            properties:
+              name:
+                type: string
+                minLength: 1
+              status:
+                type: string
+                enum:
+                - passed
+                - failed
+                - error
+        events:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - id
+            - kind
+            - value
+            properties:
+              id:
+                type: string
+              kind:
+                type: string
+                enum:
+                - tool_started
+                - tool_completed
+                - assistant_text
+                - rule_declaration
+              value:
+                type: object
+                additionalProperties: true
+        branchCandidates:
+          type: array
+          items:
+            type: string
+        schemaVersion:
+          type: integer
+          enum:
+          - 6
+        collectorVersion:
+          type: string
+          enum:
+          - release-review-1
+        collectorDigest:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        runId:
+          type: string
+          minLength: 1
+        attemptId:
+          type: string
+          minLength: 1
+        caseRevision:
+          type: string
+          minLength: 1
+        lineageId:
+          type: string
+          minLength: 1
+        split:
+          type: string
+          enum:
+          - holdout
+        purpose:
+          type: string
+          enum:
+          - actual
+          - management_test
+        initialVerification:
+          type: object
+          additionalProperties: false
+          required:
+          - status
+          - receiptSha256
+          - protocol
+          - matches
+          - candidateSnapshot
+          - checks
+          properties:
+            status:
+              type: string
+              enum:
+              - passed
+              - failed
+              - error
+            receiptSha256:
+              type: string
+              pattern: ^[a-f0-9]{64}$
+            protocol:
+              type: string
+              enum:
+              - release-receipt-1
+            matches:
+              type: boolean
+            candidateSnapshot:
+              type: string
+              pattern: ^[a-f0-9]{64}$
+            checks:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                - name
+                - status
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                  status:
+                    type: string
+                    enum:
+                    - passed
+                    - failed
+                    - error
+        publicVerification:
+          type: object
+          additionalProperties: false
+          required:
+          - initialExitCode
+          - finalExitCode
+          - recordsVerified
+          - deliveriesVerified
+          - deliveryRefs
+          - fault
+          properties:
+            initialExitCode:
+              type: integer
+              nullable: true
+            finalExitCode:
+              type: integer
+              nullable: true
+            recordsVerified:
+              type: boolean
+            deliveriesVerified:
+              type: boolean
+            deliveryRefs:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                - checkIndex
+                - startedEvent
+                - completedEvent
+                properties:
+                  checkIndex:
+                    type: integer
+                    minimum: 1
+                  startedEvent:
+                    type: string
+                    minLength: 1
+                  completedEvent:
+                    type: string
+                    minLength: 1
+            fault:
+              type: object
+              additionalProperties: false
+              required:
+              - checkIndex
+              - code
+              - recordSha256
+              - startedEvent
+              - completedEvent
+              properties:
+                checkIndex:
+                  type: integer
+                  enum:
+                  - 2
+                code:
+                  type: string
+                  enum:
+                  - registered_check_unavailable
+                recordSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                startedEvent:
+                  type: string
+                  minLength: 1
+                completedEvent:
+                  type: string
+                  minLength: 1
+              nullable: true
+        outcome:
+          type: string
+          enum:
+          - healthy_candidate
+          - repair_candidate
+          - stop_candidate
+          - unresolved_candidate
+          - incomplete
+          - failed
+        batchId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        taskDigest:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        suiteId:
+          type: string
+          minLength: 1
+        checkMapping:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - id
+            - group
+            - ruleCheck
+            properties:
+              id:
+                type: string
+                minLength: 1
+              group:
+                type: string
+                enum:
+                - scoped
+                - dream
+              ruleCheck:
+                type: string
+                pattern: ^[a-z_]+$
+        processVerification:
+          type: object
+          additionalProperties: false
+          required:
+          - version
+          - complete
+          - issues
+          - maxCycles
+          - cyclesUsed
+          - budgetExceeded
+          - unverifiedEdits
+          - checkpoints
+          properties:
+            version:
+              type: string
+              enum:
+              - release-process-1
+            complete:
+              type: boolean
+            issues:
+              type: array
+              items:
+                type: string
+                minLength: 1
+            maxCycles:
+              type: integer
+              enum:
+              - 2
+            cyclesUsed:
+              type: integer
+              minimum: 0
+            budgetExceeded:
+              type: boolean
+            unverifiedEdits:
+              type: boolean
+            checkpoints:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                - checkIndex
+                - snapshot
+                - recordSha256
+                - startedEvent
+                - completedEvent
+                - checks
+                - groupStatus
+                - cyclesUsed
+                - editEventRefs
+                properties:
+                  checkIndex:
+                    type: integer
+                    minimum: 1
+                  snapshot:
+                    type: string
+                    pattern: ^[a-f0-9]{64}$
+                  recordSha256:
+                    type: string
+                    pattern: ^[a-f0-9]{64}$
+                  startedEvent:
+                    type: string
+                    minLength: 1
+                    nullable: true
+                  completedEvent:
+                    type: string
+                    minLength: 1
+                    nullable: true
+                  checks:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                      - name
+                      - status
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        status:
+                          type: string
+                          enum:
+                          - passed
+                          - failed
+                          - error
+                  groupStatus:
+                    type: object
+                    additionalProperties: false
+                    properties:
+                      scoped:
+                        type: string
+                        enum:
+                        - passed
+                        - failed
+                        - error
+                      dream:
+                        type: string
+                        enum:
+                        - passed
+                        - failed
+                        - error
+                  cyclesUsed:
+                    type: integer
+                    minimum: 0
+                  editEventRefs:
+                    type: array
+                    items:
+                      type: string
+                      minLength: 1
+        intermediateVerifications:
+          type: array
+          maxItems: 0
+          items:
+            type: object
+        taskOutcome:
+          type: object
+          additionalProperties: false
+          required:
+          - kind
+          - eligible
+          - reasons
+          properties:
+            kind:
+              type: string
+              enum:
+              - healthy
+              - repair
+              - out_of_scope
+              - missing_evidence
+              - unresolved
+              - tool_failure
+            eligible:
+              type: boolean
+            reasons:
+              type: array
+              items:
+                type: string
+                minLength: 1
+        executionQualification:
+          type: object
+          additionalProperties: false
+          required:
+          - protocol
+          - policyDigest
+          - batchProtocol
+          - batchId
+          - manifestSha256
+          - calibration
+          - trial
+          - planQualified
+          - planIssues
+          properties:
+            protocol:
+              type: string
+              enum:
+              - release-plan-1
+            policyDigest:
+              type: string
+              pattern: ^[a-f0-9]{64}$
+            batchProtocol:
+              type: string
+              enum:
+              - release-batch-1
+            batchId:
+              type: string
+              pattern: ^[a-f0-9]{64}$
+            manifestSha256:
+              type: string
+              pattern: ^[a-f0-9]{64}$
+            calibration:
+              type: object
+              additionalProperties: false
+              required:
+              - unit
+              - group
+              - runId
+              - attemptId
+              - reportSha256
+              - eventsSha256
+              - initialReceiptSha256
+              - receiptSha256
+              - status
+              - taskAccepted
+              - captureComplete
+              - loading
+              - processComplete
+              - maxCycles
+              - cyclesUsed
+              - budgetExceeded
+              - unverifiedEdits
+              - policyMatches
+              - qualified
+              - issues
+              properties:
+                unit:
+                  type: string
+                  enum:
+                  - release-none
+                group:
+                  type: string
+                  enum:
+                  - none
+                runId:
+                  type: string
+                  minLength: 1
+                attemptId:
+                  type: string
+                  minLength: 1
+                reportSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                eventsSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                initialReceiptSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                receiptSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                status:
+                  type: string
+                  enum:
+                  - passed
+                  - failed
+                  - incomplete
+                taskAccepted:
+                  type: boolean
+                captureComplete:
+                  type: boolean
+                loading:
+                  type: string
+                  enum:
+                  - not_requested
+                  - verified
+                  - unknown
+                processComplete:
+                  type: boolean
+                maxCycles:
+                  type: integer
+                  minimum: 0
+                cyclesUsed:
+                  type: integer
+                  minimum: 0
+                budgetExceeded:
+                  type: boolean
+                unverifiedEdits:
+                  type: boolean
+                policyMatches:
+                  type: boolean
+                qualified:
+                  type: boolean
+                issues:
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+            trial:
+              type: object
+              additionalProperties: false
+              required:
+              - unit
+              - group
+              - runId
+              - attemptId
+              - reportSha256
+              - eventsSha256
+              - initialReceiptSha256
+              - receiptSha256
+              - status
+              - taskAccepted
+              - captureComplete
+              - loading
+              - processComplete
+              - maxCycles
+              - cyclesUsed
+              - budgetExceeded
+              - unverifiedEdits
+              - policyMatches
+              - qualified
+              - issues
+              properties:
+                unit:
+                  type: string
+                  description: 固定 suiteId 加 -skill 后缀
+                group:
+                  type: string
+                  enum:
+                  - skill
+                runId:
+                  type: string
+                  minLength: 1
+                attemptId:
+                  type: string
+                  minLength: 1
+                reportSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                eventsSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                initialReceiptSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                receiptSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                status:
+                  type: string
+                  enum:
+                  - passed
+                  - failed
+                  - incomplete
+                taskAccepted:
+                  type: boolean
+                captureComplete:
+                  type: boolean
+                loading:
+                  type: string
+                  enum:
+                  - not_requested
+                  - verified
+                  - unknown
+                processComplete:
+                  type: boolean
+                maxCycles:
+                  type: integer
+                  minimum: 0
+                cyclesUsed:
+                  type: integer
+                  minimum: 0
+                budgetExceeded:
+                  type: boolean
+                unverifiedEdits:
+                  type: boolean
+                policyMatches:
+                  type: boolean
+                qualified:
+                  type: boolean
+                issues:
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+            planQualified:
+              type: boolean
+            planIssues:
+              type: array
+              items:
+                type: string
+                minLength: 1
+      description: schema 6 精确事实；健康、修复与停止分别记录。底层 failed 不因合理停止改成 passed；工具故障没有业务退出码。绑定和交叉引用由
+        Python 及前端严格核对。
+    SkillP5Assessment:
+      type: object
+      additionalProperties: false
+      required:
+      - assessmentId
+      - validationId
+      - contentHash
+      - exportHash
+      - candidateSnapshot
+      - reportSha256
+      - eventsSha256
+      - coveragePlanHash
+      - caseId
+      - captureComplete
+      - loadVerified
+      - behaviorChanged
+      - originalStatus
+      - verification
+      - checks
+      - events
+      - branchCandidates
+      - schemaVersion
+      - collectorVersion
+      - collectorDigest
+      - runId
+      - attemptId
+      - caseRevision
+      - lineageId
+      - split
+      - purpose
+      - initialVerification
+      - publicVerification
+      - outcome
+      - batchId
+      - taskDigest
+      - suiteId
+      - checkMapping
+      - processVerification
+      - intermediateVerifications
+      - taskOutcome
+      - executionQualification
+      properties:
+        assessmentId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        validationId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        contentHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        exportHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        candidateSnapshot:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        reportSha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        eventsSha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        coveragePlanHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        caseId:
+          type: string
+        captureComplete:
+          type: boolean
+        loadVerified:
+          type: boolean
+        behaviorChanged:
+          type: boolean
+        originalStatus:
+          type: string
+        verification:
+          type: object
+          additionalProperties: false
+          required:
+          - status
+          - receiptSha256
+          - protocol
+          - matches
+          - sameFinalPatch
+          - posthoc
+          properties:
+            status:
+              type: string
+              enum:
+              - passed
+              - failed
+              - error
+            receiptSha256:
+              type: string
+              pattern: ^[a-f0-9]{64}$
+            protocol:
+              type: string
+              enum:
+              - p5-receipt-1
+            matches:
+              type: boolean
+            sameFinalPatch:
+              type: boolean
+            posthoc:
+              type: boolean
+              enum:
+              - false
+        checks:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - name
+            - status
+            properties:
+              name:
+                type: string
+                minLength: 1
+              status:
+                type: string
+                enum:
+                - passed
+                - failed
+                - error
+        events:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - id
+            - kind
+            - value
+            properties:
+              id:
+                type: string
+              kind:
+                type: string
+                enum:
+                - tool_started
+                - tool_completed
+                - assistant_text
+                - rule_declaration
+              value:
+                type: object
+                additionalProperties: true
+        branchCandidates:
+          type: array
+          items:
+            type: string
+        schemaVersion:
+          type: integer
+          enum:
+          - 7
+        collectorVersion:
+          type: string
+          enum:
+          - p5-review-1
+        collectorDigest:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        runId:
+          type: string
+          minLength: 1
+        attemptId:
+          type: string
+          minLength: 1
+        caseRevision:
+          type: string
+          minLength: 1
+        lineageId:
+          type: string
+          minLength: 1
+        split:
+          type: string
+          enum:
+          - holdout
+        purpose:
+          type: string
+          enum:
+          - actual
+          - management_test
+        initialVerification:
+          type: object
+          additionalProperties: false
+          required:
+          - status
+          - receiptSha256
+          - protocol
+          - matches
+          - candidateSnapshot
+          - checks
+          properties:
+            status:
+              type: string
+              enum:
+              - passed
+              - failed
+              - error
+            receiptSha256:
+              type: string
+              pattern: ^[a-f0-9]{64}$
+            protocol:
+              type: string
+              enum:
+              - p5-receipt-1
+            matches:
+              type: boolean
+            candidateSnapshot:
+              type: string
+              pattern: ^[a-f0-9]{64}$
+            checks:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                - name
+                - status
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                  status:
+                    type: string
+                    enum:
+                    - passed
+                    - failed
+                    - error
+        publicVerification:
+          type: object
+          additionalProperties: false
+          required:
+          - initialExitCode
+          - finalExitCode
+          - recordsVerified
+          - deliveriesVerified
+          - deliveryRefs
+          - fault
+          properties:
+            initialExitCode:
+              type: integer
+              nullable: true
+            finalExitCode:
+              type: integer
+              nullable: true
+            recordsVerified:
+              type: boolean
+            deliveriesVerified:
+              type: boolean
+            deliveryRefs:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                - checkIndex
+                - startedEvent
+                - completedEvent
+                properties:
+                  checkIndex:
+                    type: integer
+                    minimum: 1
+                  startedEvent:
+                    type: string
+                    minLength: 1
+                  completedEvent:
+                    type: string
+                    minLength: 1
+            fault:
+              type: object
+              additionalProperties: false
+              required:
+              - checkIndex
+              - code
+              - recordSha256
+              - startedEvent
+              - completedEvent
+              properties:
+                checkIndex:
+                  type: integer
+                  enum:
+                  - 2
+                code:
+                  type: string
+                  enum:
+                  - registered_check_unavailable
+                recordSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                startedEvent:
+                  type: string
+                  minLength: 1
+                completedEvent:
+                  type: string
+                  minLength: 1
+              nullable: true
+        outcome:
+          type: string
+          enum:
+          - healthy_candidate
+          - repair_candidate
+          - stop_candidate
+          - unresolved_candidate
+          - incomplete
+          - failed
+        batchId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        taskDigest:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        suiteId:
+          type: string
+          minLength: 1
+        checkMapping:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - id
+            - group
+            - ruleCheck
+            properties:
+              id:
+                type: string
+                minLength: 1
+              group:
+                type: string
+                enum:
+                - scoped
+                - dream
+              ruleCheck:
+                type: string
+                pattern: ^[a-z_]+$
+        processVerification:
+          type: object
+          additionalProperties: false
+          required:
+          - version
+          - complete
+          - issues
+          - maxCycles
+          - cyclesUsed
+          - budgetExceeded
+          - unverifiedEdits
+          - checkpoints
+          properties:
+            version:
+              type: string
+              enum:
+              - p5-process-1
+            complete:
+              type: boolean
+            issues:
+              type: array
+              items:
+                type: string
+                minLength: 1
+            maxCycles:
+              type: integer
+              enum:
+              - 2
+            cyclesUsed:
+              type: integer
+              minimum: 0
+            budgetExceeded:
+              type: boolean
+            unverifiedEdits:
+              type: boolean
+            checkpoints:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                - checkIndex
+                - snapshot
+                - recordSha256
+                - startedEvent
+                - completedEvent
+                - checks
+                - groupStatus
+                - cyclesUsed
+                - editEventRefs
+                properties:
+                  checkIndex:
+                    type: integer
+                    minimum: 1
+                  snapshot:
+                    type: string
+                    pattern: ^[a-f0-9]{64}$
+                  recordSha256:
+                    type: string
+                    pattern: ^[a-f0-9]{64}$
+                  startedEvent:
+                    type: string
+                    minLength: 1
+                    nullable: true
+                  completedEvent:
+                    type: string
+                    minLength: 1
+                    nullable: true
+                  checks:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                      - name
+                      - status
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        status:
+                          type: string
+                          enum:
+                          - passed
+                          - failed
+                          - error
+                  groupStatus:
+                    type: object
+                    additionalProperties: false
+                    properties:
+                      scoped:
+                        type: string
+                        enum:
+                        - passed
+                        - failed
+                        - error
+                      dream:
+                        type: string
+                        enum:
+                        - passed
+                        - failed
+                        - error
+                  cyclesUsed:
+                    type: integer
+                    minimum: 0
+                  editEventRefs:
+                    type: array
+                    items:
+                      type: string
+                      minLength: 1
+        intermediateVerifications:
+          type: array
+          maxItems: 0
+          items:
+            type: object
+        taskOutcome:
+          type: object
+          additionalProperties: false
+          required:
+          - kind
+          - eligible
+          - reasons
+          properties:
+            kind:
+              type: string
+              enum:
+              - healthy
+              - repair
+              - out_of_scope
+              - missing_evidence
+              - unresolved
+              - tool_failure
+            eligible:
+              type: boolean
+            reasons:
+              type: array
+              items:
+                type: string
+                minLength: 1
+        executionQualification:
+          type: object
+          additionalProperties: false
+          required:
+          - protocol
+          - policyDigest
+          - batchProtocol
+          - batchId
+          - manifestSha256
+          - calibration
+          - trial
+          - planQualified
+          - planIssues
+          properties:
+            protocol:
+              type: string
+              enum:
+              - p5-plan-1
+            policyDigest:
+              type: string
+              pattern: ^[a-f0-9]{64}$
+            batchProtocol:
+              type: string
+              enum:
+              - p5-batch-1
+            batchId:
+              type: string
+              pattern: ^[a-f0-9]{64}$
+            manifestSha256:
+              type: string
+              pattern: ^[a-f0-9]{64}$
+            calibration:
+              type: object
+              additionalProperties: false
+              required:
+              - unit
+              - group
+              - runId
+              - attemptId
+              - reportSha256
+              - eventsSha256
+              - initialReceiptSha256
+              - receiptSha256
+              - status
+              - taskAccepted
+              - captureComplete
+              - loading
+              - processComplete
+              - maxCycles
+              - cyclesUsed
+              - budgetExceeded
+              - unverifiedEdits
+              - policyMatches
+              - qualified
+              - issues
+              properties:
+                unit:
+                  type: string
+                  enum:
+                  - p5-none
+                group:
+                  type: string
+                  enum:
+                  - none
+                runId:
+                  type: string
+                  minLength: 1
+                attemptId:
+                  type: string
+                  minLength: 1
+                reportSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                eventsSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                initialReceiptSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                receiptSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                status:
+                  type: string
+                  enum:
+                  - passed
+                  - failed
+                  - incomplete
+                taskAccepted:
+                  type: boolean
+                captureComplete:
+                  type: boolean
+                loading:
+                  type: string
+                  enum:
+                  - not_requested
+                  - verified
+                  - unknown
+                processComplete:
+                  type: boolean
+                maxCycles:
+                  type: integer
+                  minimum: 0
+                cyclesUsed:
+                  type: integer
+                  minimum: 0
+                budgetExceeded:
+                  type: boolean
+                unverifiedEdits:
+                  type: boolean
+                policyMatches:
+                  type: boolean
+                qualified:
+                  type: boolean
+                issues:
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+            trial:
+              type: object
+              additionalProperties: false
+              required:
+              - unit
+              - group
+              - runId
+              - attemptId
+              - reportSha256
+              - eventsSha256
+              - initialReceiptSha256
+              - receiptSha256
+              - status
+              - taskAccepted
+              - captureComplete
+              - loading
+              - processComplete
+              - maxCycles
+              - cyclesUsed
+              - budgetExceeded
+              - unverifiedEdits
+              - policyMatches
+              - qualified
+              - issues
+              properties:
+                unit:
+                  type: string
+                  description: 固定 suiteId 加 -skill 后缀
+                group:
+                  type: string
+                  enum:
+                  - skill
+                runId:
+                  type: string
+                  minLength: 1
+                attemptId:
+                  type: string
+                  minLength: 1
+                reportSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                eventsSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                initialReceiptSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                receiptSha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                status:
+                  type: string
+                  enum:
+                  - passed
+                  - failed
+                  - incomplete
+                taskAccepted:
+                  type: boolean
+                captureComplete:
+                  type: boolean
+                loading:
+                  type: string
+                  enum:
+                  - not_requested
+                  - verified
+                  - unknown
+                processComplete:
+                  type: boolean
+                maxCycles:
+                  type: integer
+                  minimum: 0
+                cyclesUsed:
+                  type: integer
+                  minimum: 0
+                budgetExceeded:
+                  type: boolean
+                unverifiedEdits:
+                  type: boolean
+                policyMatches:
+                  type: boolean
+                qualified:
+                  type: boolean
+                issues:
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+            planQualified:
+              type: boolean
+            planIssues:
+              type: array
+              items:
+                type: string
+                minLength: 1
+      description: schema 6 精确事实；健康、修复与停止分别记录。底层 failed 不因合理停止改成 passed；工具故障没有业务退出码。绑定和交叉引用由
+        Python 及前端严格核对。
+    SkillAdjudicationPackage:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - projectId
+      - skillId
+      - revision
+      - sequence
+      - contentHash
+      - exportHash
+      - sourceWatermark
+      - assessmentId
+      - assessment
+      - validation
+      - activeAdjudicationIds
+      - actor
+      - preparedAt
+      - packageId
+      - packageHash
+      properties:
+        kind:
+          type: string
+          enum:
+          - adjudication
+        projectId:
+          type: string
+        skillId:
+          type: string
+        revision:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        sequence:
+          type: integer
+          minimum: 0
+        contentHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        exportHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+          nullable: true
+        sourceWatermark:
+          type: array
+          items:
+            type: string
+        assessmentId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        assessment:
+          $ref: '#/components/schemas/SkillAssessment'
+        validation:
+          type: object
+          additionalProperties: true
+        activeAdjudicationIds:
+          type: array
+          items:
+            type: string
+            pattern: ^[a-f0-9]{64}$
+        actor:
+          type: string
+        preparedAt:
+          type: string
+        packageId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        packageHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+    SkillAdjudicationResult:
+      type: object
+      additionalProperties: false
+      required:
+      - adjudicationId
+      - sequence
+      - state
+      - contribution
+      properties:
+        adjudicationId:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        sequence:
+          type: integer
+          minimum: 0
+        state:
+          type: string
+        contribution:
+          type: object
+          additionalProperties: true
+    SkillReviewPackage:
+      type: object
+      required: [packageId, packageHash, sequence, skillId, revision, readiness]
+      properties:
+        lifecycleWatermark:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        dependencyReleases:
+          type: array
+          items:
+            $ref: '#/components/schemas/SkillDependencyRelease'
+        packageId:
+          type: string
+        packageHash:
+          type: string
+        sequence:
+          type: integer
+        skillId:
+          type: string
+        revision:
+          type: string
+        readiness:
+          $ref: '#/components/schemas/SkillReadiness'
+        validationIds:
+          type: array
+          items:
+            type: string
+        sourceWatermark:
+          type: array
+          items:
+            type: string
+        contentHash:
+          type: string
+        reviewChecklist:
+          type: array
+          items:
+            type: object
+            properties:
+              ruleId:
+                type: string
+              branchCount:
+                type: integer
+              coveredBranches:
+                type: array
+                items:
+                  type: string
+    SkillLoadPreview:
+      type: object
+      description: 正式加载门禁只读结果，不代表候选评测通过。
+      properties:
+        allowed:
+          type: boolean
+        reasons:
+          type: array
+          items:
+            type: string
     ErrorEnvelope:
       type: object
       description: 错误信封。HTTP 状态码与 `code` 一起判断；`data` 按场景可能带 `errors`、`currentVersionId`、`retryAfterSec`。
