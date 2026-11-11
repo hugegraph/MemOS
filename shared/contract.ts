@@ -18,6 +18,582 @@ export interface Records<T> {
   size?: number
 }
 
+/* ------------------------------------------------------------ Skill 管理（P3） */
+
+/** candidate 保留 Python 规范的 snake_case；管理接口使用 camelCase。 */
+export interface SkillRule {
+  rule_id: string
+  condition: string
+  observation: string
+  action: string
+  expected_result: string
+  basis: string
+  branches: { when: string; target: string }[]
+  evidence_links: Record<string, unknown>[]
+  validation_status?: string
+}
+
+export interface SkillCandidate {
+  skill_id: string
+  revision: string
+  title: string
+  goal: string
+  purpose: string
+  tags: string[]
+  applicability: string[]
+  exclusions: string[]
+  prerequisites: string[]
+  constraints: string[]
+  acceptance: string[]
+  limitations: string[]
+  entry_rule: string
+  exits: Record<string, string>
+  rules: SkillRule[]
+  semantic_review: string
+  independent_validation: string
+  content_hash: string
+  source_refs: Record<string, unknown>[]
+  host_limits: string[]
+  requires: unknown[]
+}
+
+export interface SkillReadiness {
+  status: string
+  reasons: string[]
+}
+
+export interface SkillSummary {
+  skillId: string
+  revision: string
+  title: string
+  purpose: string
+  tags: string[]
+  state: string
+  sequence: number
+  readiness: SkillReadiness
+  ruleCount: number
+  validationCount: number
+}
+
+export interface SkillManagement {
+  state: string
+  sequence: number
+  releaseId?: string | null
+  /** 原生工件由宿主投影绑定，不由 canonical revision 单独决定。 */
+  projectionVersion: string | null
+  exportHash: string | null
+  readiness: SkillReadiness
+  challenges: unknown[]
+}
+
+export interface SkillJob {
+  jobId: string
+  status: string
+  skillId?: string
+  revision?: string
+  caseId?: string
+  mode?: string
+  taskResult?: { status: string; accepted: boolean; receiptMatches: boolean } | null
+  skillUsage?: { loading: string; capture: string; usageReview: string; declaredRuleIds: string[]; endedAdmission?: string } | null
+  validationId?: string | null
+  errorCode?: string | null
+  createdAt?: string
+  feedbackRecovery?: {
+    recoveryId: string
+    validationId: string
+    evidenceDigest: string
+    actor: string
+    recoveredAt: string
+    status: string
+    taskResult: NonNullable<SkillJob['taskResult']>
+    skillUsage: NonNullable<SkillJob['skillUsage']>
+  }
+}
+
+export interface SkillDetail {
+  projectId: string
+  candidate: SkillCandidate
+  management: SkillManagement
+  validations: Record<string, unknown>[]
+  jobs: SkillJob[]
+  releases: Record<string, unknown>[]
+  caseOptions: { caseId: string; title: string }[]
+  governance?: SkillGovernanceState
+  lifecycle?: SkillLifecycle
+}
+
+export type SkillObservationStatus = 'healthy' | 'changed' | 'unavailable' | 'invalid' | 'restored'
+export interface SkillDependencyRelease {
+  skillId: string
+  revision: string
+  releaseId: string
+}
+export interface SkillLifecycle {
+  schemaVersion: 1
+  enabled: boolean
+  watermark: string
+  subjects: {
+    subjectId: string
+    kind: 'memory' | 'tool'
+    expectedDigest: string
+    observedDigest: string | null
+    status: SkillObservationStatus
+    observationId: string | null
+  }[]
+  roots: {
+    rootId: string
+    originSkillId: string
+    originRevision: string
+    subjectId: string
+    kind: 'memory' | 'tool'
+    status: 'active' | 'restored_pending'
+    latestObservationId: string
+    paths: string[][]
+    reason: string
+  }[]
+  observations: {
+    observationId: string
+    subjectId: string
+    kind: 'memory' | 'tool'
+    expectedDigest: string
+    observedDigest: string | null
+    status: SkillObservationStatus
+    previousObservationId: string | null
+    detectorVersion: string
+    reason: string
+    observedAt: string
+  }[]
+  decisions: { decisionId: string; action: string; actor: string; reason: string; decidedAt: string; evidenceIds: string[] }[]
+  dependencies: { skillId: string; revision: string; releaseId: string | null; state: string; allowed: boolean }[]
+  gate: { status: 'PASS' | 'BLOCK'; reasons: string[] }
+}
+export interface SkillLifecyclePackage extends SkillRef {
+  kind: 'lifecycle'
+  sequence: number
+  contentHash: string
+  exportHash: string | null
+  sourceWatermark: string[]
+  lifecycleWatermark: string
+  activeRootIds: string[]
+  currentChallengeIds: string[]
+  evidenceIds: string[]
+  dependencyReleases: SkillDependencyRelease[]
+  actor: string
+  preparedAt: string
+  packageId: string
+  packageHash: string
+}
+export interface SkillImpactReview extends SkillMutation {
+  packageId: string
+  packageHash: string
+  decision: 'restore' | 'retain' | 'supersede'
+  rootIds: string[]
+  validationIds: string[]
+  replacementRevision: string | null
+}
+export interface SkillChallengeResolution extends SkillMutation {
+  packageId: string
+  packageHash: string
+  challengeId: string
+  decision: 'addressed' | 'upheld' | 'superseded'
+  evidenceIds: string[]
+  replacementRevision: string | null
+}
+
+export interface SkillBranchClaim {
+  branchId: string
+  conditionRefs: string[]
+  actionRefs: string[]
+  checkRefs: string[]
+  reason: string
+}
+
+export interface SkillJudgment {
+  taskDecision: 'repair_confirmed' | 'healthy_confirmed' | 'unresolved_confirmed' | 'stop_confirmed' | 'failed' | 'needs_evidence'
+  historyDecision: 'retain' | 'infra_explained'
+  usageDecision: 'correct' | 'misused' | 'not_used' | 'unknown'
+  applicability: 'in_scope' | 'out_of_scope' | 'unknown'
+  boundary: 'not_applicable' | 'needs_evidence' | 'unresolved' | null
+  violations: 'none' | 'serious' | 'unknown'
+  reason: string
+  eventRefs: string[]
+  branches: SkillBranchClaim[]
+}
+
+interface SkillAssessmentFields {
+  assessmentId: string
+  validationId: string
+  caseId: string
+  contentHash: string
+  exportHash: string
+  candidateSnapshot: string
+  reportSha256: string
+  eventsSha256: string
+  captureComplete: boolean
+  loadVerified: boolean
+  behaviorChanged: boolean
+  originalStatus: 'passed' | 'failed' | 'error' | 'needs_review'
+  verification: {
+    status: 'passed' | 'failed' | 'error' | 'needs_review'
+    receiptSha256: string
+    protocol: string
+    matches: boolean
+    sameFinalPatch: boolean
+    posthoc: boolean
+  }
+  checks: { name: string; status: string }[]
+  events: { id: string; kind: string; value: Record<string, unknown> }[]
+  branchCandidates: string[]
+  coveragePlanHash: string
+}
+
+export interface SkillLegacyAssessment extends SkillAssessmentFields {
+  schemaVersion?: 1
+}
+
+export interface SkillBranchAssessment extends SkillAssessmentFields {
+  schemaVersion: 2
+  collectorVersion: 'branch-review-1'
+  collectorDigest: string
+  runId: string
+  attemptId: string
+  caseRevision: string
+  lineageId: string
+  split: 'holdout'
+  purpose: 'actual' | 'management_test'
+  initialVerification: {
+    status: 'passed' | 'failed' | 'error'
+    receiptSha256: string
+    protocol: 'branch-receipt-1'
+    matches: boolean
+    candidateSnapshot: string
+  }
+  publicVerification: {
+    initialExitCode: number | null
+    finalExitCode: number | null
+    recordsVerified: boolean
+    deliveriesVerified: boolean
+    deliveryRefs: { checkIndex: number; startedEvent: string; completedEvent: string }[]
+  }
+  outcome: 'repair_candidate' | 'failed' | 'incomplete'
+  batchId: string
+  taskDigest: string
+}
+
+export type SkillCheckStatus = 'passed' | 'failed' | 'error'
+
+export interface SkillProcessCheckpoint {
+  checkIndex: number
+  snapshot: string
+  recordSha256: string
+  startedEvent: string | null
+  completedEvent: string | null
+  checks: { name: string; status: SkillCheckStatus }[]
+  groupStatus: Partial<Record<'scoped' | 'dream', SkillCheckStatus>>
+  cyclesUsed: number
+  editEventRefs: string[]
+}
+
+export interface SkillExtensionAssessment extends Omit<
+  SkillBranchAssessment,
+  'schemaVersion' | 'collectorVersion' | 'initialVerification'
+> {
+  schemaVersion: 3
+  collectorVersion: 'extension-review-1'
+  initialVerification: Omit<SkillBranchAssessment['initialVerification'], 'protocol'> & { protocol: 'extension-receipt-1' }
+  suiteId: string
+  checkMapping: { id: string; group: 'scoped' | 'dream'; ruleCheck: string }[]
+  processVerification: {
+    version: 'extension-process-1'
+    complete: boolean
+    issues: string[]
+    maxCycles: 2
+    cyclesUsed: number
+    budgetExceeded: boolean
+    unverifiedEdits: boolean
+    checkpoints: SkillProcessCheckpoint[]
+  }
+  intermediateVerifications: {
+    snapshot: string
+    checkIndices: number[]
+    receiptSha256: string
+    protocol: 'extension-receipt-1'
+    matches: boolean
+    status: SkillCheckStatus
+    checks: { name: string; status: SkillCheckStatus }[]
+  }[]
+}
+
+export interface SkillC2Assessment extends Omit<
+  SkillExtensionAssessment,
+  'schemaVersion' | 'collectorVersion' | 'initialVerification' | 'processVerification' | 'intermediateVerifications'
+> {
+  schemaVersion: 4
+  collectorVersion: 'c2-review-1'
+  initialVerification: Omit<SkillExtensionAssessment['initialVerification'], 'protocol'> & {
+    protocol: 'c2-receipt-1'
+    checks: { name: string; status: SkillCheckStatus }[]
+  }
+  processVerification: Omit<SkillExtensionAssessment['processVerification'], 'version'> & { version: 'c2-process-1' }
+  intermediateVerifications: never[]
+}
+
+export interface SkillExecutionUnit {
+  unit: string
+  group: 'none' | 'skill'
+  runId: string
+  attemptId: string
+  reportSha256: string
+  eventsSha256: string
+  initialReceiptSha256: string
+  receiptSha256: string
+  status: 'passed' | 'failed' | 'incomplete'
+  taskAccepted: boolean
+  captureComplete: boolean
+  loading: 'not_requested' | 'verified' | 'unknown'
+  processComplete: boolean
+  maxCycles: number
+  cyclesUsed: number
+  budgetExceeded: boolean
+  unverifiedEdits: boolean
+  policyMatches: boolean
+  qualified: boolean
+  issues: string[]
+}
+
+export interface SkillC2V2Assessment extends Omit<SkillC2Assessment, 'schemaVersion' | 'collectorVersion'> {
+  schemaVersion: 5
+  collectorVersion: 'c2-review-2'
+  executionQualification: {
+    protocol: 'c2-plan-1'
+    policyDigest: string
+    batchProtocol: 'c2-batch-2'
+    batchId: string
+    manifestSha256: string
+    calibration: SkillExecutionUnit
+    trial: SkillExecutionUnit
+    planQualified: boolean
+    planIssues: string[]
+  }
+}
+
+export interface SkillReleaseAssessment extends Omit<
+  SkillC2V2Assessment,
+  | 'schemaVersion'
+  | 'collectorVersion'
+  | 'verification'
+  | 'initialVerification'
+  | 'publicVerification'
+  | 'outcome'
+  | 'processVerification'
+  | 'executionQualification'
+> {
+  schemaVersion: 6
+  collectorVersion: 'release-review-1'
+  verification: Omit<SkillC2V2Assessment['verification'], 'protocol'> & { protocol: 'release-receipt-1' }
+  initialVerification: Omit<SkillC2V2Assessment['initialVerification'], 'protocol'> & { protocol: 'release-receipt-1' }
+  publicVerification: SkillC2V2Assessment['publicVerification'] & {
+    fault: null | {
+      checkIndex: number
+      code: 'registered_check_unavailable'
+      recordSha256: string
+      startedEvent: string
+      completedEvent: string
+    }
+  }
+  outcome: 'healthy_candidate' | 'repair_candidate' | 'stop_candidate' | 'unresolved_candidate' | 'incomplete' | 'failed'
+  processVerification: Omit<SkillC2V2Assessment['processVerification'], 'version'> & { version: 'release-process-1' }
+  taskOutcome: {
+    kind: 'healthy' | 'repair' | 'out_of_scope' | 'missing_evidence' | 'unresolved' | 'tool_failure'
+    eligible: boolean
+    reasons: string[]
+  }
+  executionQualification: Omit<SkillC2V2Assessment['executionQualification'], 'protocol' | 'batchProtocol'> & {
+    protocol: 'release-plan-1'
+    batchProtocol: 'release-batch-1'
+  }
+}
+
+export interface SkillP5Assessment extends Omit<
+  SkillC2V2Assessment,
+  | 'schemaVersion'
+  | 'collectorVersion'
+  | 'verification'
+  | 'initialVerification'
+  | 'publicVerification'
+  | 'outcome'
+  | 'processVerification'
+  | 'executionQualification'
+> {
+  schemaVersion: 7
+  collectorVersion: 'p5-review-1'
+  verification: Omit<SkillC2V2Assessment['verification'], 'protocol'> & { protocol: 'p5-receipt-1' }
+  initialVerification: Omit<SkillC2V2Assessment['initialVerification'], 'protocol'> & { protocol: 'p5-receipt-1' }
+  publicVerification: SkillC2V2Assessment['publicVerification'] & {
+    fault: null | {
+      checkIndex: number
+      code: 'registered_check_unavailable'
+      recordSha256: string
+      startedEvent: string
+      completedEvent: string
+    }
+  }
+  outcome: 'healthy_candidate' | 'repair_candidate' | 'stop_candidate' | 'unresolved_candidate' | 'incomplete' | 'failed'
+  processVerification: Omit<SkillC2V2Assessment['processVerification'], 'version'> & { version: 'p5-process-1' }
+  taskOutcome: {
+    kind: 'healthy' | 'repair' | 'out_of_scope' | 'missing_evidence' | 'unresolved' | 'tool_failure'
+    eligible: boolean
+    reasons: string[]
+  }
+  executionQualification: Omit<SkillC2V2Assessment['executionQualification'], 'protocol' | 'batchProtocol'> & {
+    protocol: 'p5-plan-1'
+    batchProtocol: 'p5-batch-1'
+  }
+}
+
+export type SkillAssessment =
+  | SkillLegacyAssessment
+  | SkillBranchAssessment
+  | SkillExtensionAssessment
+  | SkillC2Assessment
+  | SkillC2V2Assessment
+  | SkillReleaseAssessment
+  | SkillP5Assessment
+
+export interface SkillAdjudicationRecord {
+  adjudicationId: string
+  assessmentId: string
+  validationId: string
+  supersedes: string | null
+  actor: string
+  reason: string
+  decidedAt: string
+  contribution: Record<string, unknown>
+}
+
+export interface SkillGovernanceState {
+  assessments: SkillAssessment[]
+  currentAssessments: Record<string, string>
+  adjudications: SkillAdjudicationRecord[]
+  coverage: { branchId: string; status: 'covered' | 'missing'; adjudicationIds: string[] }[]
+  qualification: Record<string, unknown>
+}
+
+export interface SkillAdjudicationPackage {
+  kind: 'adjudication'
+  projectId: string
+  skillId: string
+  revision: string
+  sequence: number
+  contentHash: string
+  exportHash: string | null
+  sourceWatermark: string[]
+  assessmentId: string
+  assessment: SkillAssessment
+  validation: Record<string, unknown>
+  activeAdjudicationIds: string[]
+  actor: string
+  preparedAt: string
+  packageId: string
+  packageHash: string
+}
+
+export interface SkillReviewPackage {
+  lifecycleWatermark?: string
+  dependencyReleases?: SkillDependencyRelease[]
+  projectId?: string
+  packageId: string
+  packageHash: string
+  sequence: number
+  skillId: string
+  revision: string
+  readiness: SkillReadiness
+  validationIds: string[]
+  sourceWatermark: string[]
+  contentHash: string
+  manifestId?: string
+  exportHash?: string | null
+  actor?: string
+  preparedAt?: string
+  reviewChecklist: { ruleId: string; branchCount: number; coveredBranches: string[] }[]
+}
+
+export interface SkillRef {
+  projectId: string
+  skillId: string
+  revision: string
+}
+
+export interface SkillMutation extends SkillRef {
+  expectedSequence: number
+  operationId: string
+  reason: string
+}
+
+export interface SkillMutationResult {
+  state?: string
+  sequence: number
+  releaseId?: string
+}
+
+export interface SkillLoadPreview {
+  allowed: boolean
+  reasons?: string[]
+  reason?: string
+  errorCode?: string
+  [key: string]: unknown
+}
+
+/* ------------------------------------------------------------ P4 固定三组实验 */
+export type SkillExperimentGroup = 'none' | 'raw_memory' | 'skill'
+export interface SkillExperimentSummary {
+  experimentId: string
+  skillId: string
+  revision: string
+  manifestHash: string
+  status: 'frozen' | 'running' | 'completed' | 'interrupted'
+  planned: number
+  completed: number
+}
+export interface SkillExperimentRow {
+  cellId: string
+  caseId: string
+  group: SkillExperimentGroup
+  status: 'queued' | 'running' | 'passed' | 'failed' | 'unknown' | 'infra_invalid'
+  assessmentKind: 'repair' | 'boundary_repair' | 'manual_boundary'
+  repairPass: number | null
+  boundaryPass: number | null
+  branchSupported: boolean | null
+  criticalViolation: boolean | null
+  manualReview: 'pending'
+  taskAccepted: boolean
+  receiptVerified: boolean
+  loading: string
+  capture: string
+  elapsedSeconds: number | null
+  reportedCostUsd: number | null
+  toolCalls: number | null
+  failureReasons: string[]
+}
+export interface SkillExperimentGroupScore {
+  group: SkillExperimentGroup
+  primaryRepair: { passed: number; denominator: number; planned: number }
+  boundary: { taskSolved: number; planned: number; pendingReview: number }
+  unknown: number
+  infraInvalid: number
+  elapsedSeconds: number | null
+  reportedCostUsd: number | null
+  costUnknown: number
+}
+export interface SkillExperimentDetail extends SkillExperimentSummary {
+  groups: SkillExperimentGroup[]
+  budget: { timeoutSeconds: number; maxTurns: number; maxBudgetUsd: number; contextBytes: number }
+  rows: SkillExperimentRow[]
+  summary: { groups: SkillExperimentGroupScore[]; completePairs: number }
+  publication: 'not_approved'
+  limitations: string[]
+}
+
 /* ------------------------------------------------------------ 项目 */
 
 export interface Project {

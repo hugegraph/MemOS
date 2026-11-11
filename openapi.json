@@ -2590,6 +2590,2397 @@
         "required": ["id", "createTime", "eventType", "status"],
         "type": "object"
       },
+      "SkillAdjudicationPackage": {
+        "additionalProperties": false,
+        "properties": {
+          "activeAdjudicationIds": {
+            "items": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "assessment": {
+            "$ref": "#/components/schemas/SkillAssessment"
+          },
+          "assessmentId": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "contentHash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "exportHash": {
+            "nullable": true,
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "kind": {
+            "enum": ["adjudication"],
+            "type": "string"
+          },
+          "packageHash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "packageId": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "preparedAt": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "sequence": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "skillId": {
+            "type": "string"
+          },
+          "sourceWatermark": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "validation": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "kind",
+          "projectId",
+          "skillId",
+          "revision",
+          "sequence",
+          "contentHash",
+          "exportHash",
+          "sourceWatermark",
+          "assessmentId",
+          "assessment",
+          "validation",
+          "activeAdjudicationIds",
+          "actor",
+          "preparedAt",
+          "packageId",
+          "packageHash"
+        ],
+        "type": "object"
+      },
+      "SkillAdjudicationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expectedSequence": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "judgment": {
+            "$ref": "#/components/schemas/SkillJudgment"
+          },
+          "operationId": {
+            "type": "string"
+          },
+          "packageHash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "packageId": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "skillId": {
+            "type": "string"
+          },
+          "supersedes": {
+            "nullable": true,
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "projectId",
+          "skillId",
+          "revision",
+          "expectedSequence",
+          "operationId",
+          "reason",
+          "packageId",
+          "packageHash",
+          "judgment"
+        ],
+        "type": "object"
+      },
+      "SkillAdjudicationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "adjudicationId": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "contribution": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "sequence": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": ["adjudicationId", "sequence", "state", "contribution"],
+        "type": "object"
+      },
+      "SkillAssessment": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SkillHistoricalAssessment"
+          },
+          {
+            "$ref": "#/components/schemas/SkillReleaseAssessment"
+          }
+        ]
+      },
+      "SkillBranchClaim": {
+        "additionalProperties": false,
+        "properties": {
+          "actionRefs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "branchId": {
+            "type": "string"
+          },
+          "checkRefs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "conditionRefs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["branchId", "conditionRefs", "actionRefs", "checkRefs", "reason"],
+        "type": "object"
+      },
+      "SkillChallengeResolveRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "challengeId": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "decision": {
+            "enum": ["addressed", "upheld", "superseded"],
+            "type": "string"
+          },
+          "evidenceIds": {
+            "items": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "expectedSequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "operationId": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+            "type": "string"
+          },
+          "packageHash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "packageId": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "projectId": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "replacementRevision": {
+            "nullable": true,
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "skillId": {
+            "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "projectId",
+          "skillId",
+          "revision",
+          "expectedSequence",
+          "operationId",
+          "reason",
+          "packageId",
+          "packageHash",
+          "challengeId",
+          "decision",
+          "evidenceIds",
+          "replacementRevision"
+        ],
+        "type": "object"
+      },
+      "SkillDependencyRelease": {
+        "additionalProperties": false,
+        "properties": {
+          "releaseId": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "skillId": {
+            "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+            "type": "string"
+          }
+        },
+        "required": ["skillId", "revision", "releaseId"],
+        "type": "object"
+      },
+      "SkillDetailData": {
+        "properties": {
+          "candidate": {
+            "description": "P2 规范候选，snake_case，不包含原始运行目录或 oracle。",
+            "type": "object"
+          },
+          "caseOptions": {
+            "items": {
+              "properties": {
+                "caseId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/SkillJobData"
+            },
+            "type": "array"
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/SkillLifecycle"
+          },
+          "management": {
+            "$ref": "#/components/schemas/SkillManagement"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "releases": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "validations": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["projectId", "candidate", "management", "validations", "jobs", "releases", "caseOptions"],
+        "type": "object"
+      },
+      "SkillErrorEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ErrorEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "properties": {
+                  "currentSequence": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "errorCode": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        ]
+      },
+      "SkillEvidenceData": {
+        "properties": {
+          "facts": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "rule": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "SkillExperimentDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SkillExperimentSummary"
+          },
+          {
+            "properties": {
+              "budget": {
+                "properties": {
+                  "contextBytes": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "maxBudgetUsd": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "maxTurns": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "timeoutSeconds": {
+                    "minimum": 1,
+                    "type": "number"
+                  }
+                },
+                "required": ["timeoutSeconds", "maxTurns", "maxBudgetUsd", "contextBytes"],
+                "type": "object"
+              },
+              "groups": {
+                "items": {
+                  "enum": ["none", "raw_memory", "skill"],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "limitations": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "publication": {
+                "enum": ["not_approved"],
+                "type": "string"
+              },
+              "rows": {
+                "items": {
+                  "$ref": "#/components/schemas/SkillExperimentRow"
+                },
+                "type": "array"
+              },
+              "summary": {
+                "properties": {
+                  "completePairs": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "groups": {
+                    "items": {
+                      "$ref": "#/components/schemas/SkillExperimentGroupScore"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": ["groups", "completePairs"],
+                "type": "object"
+              }
+            },
+            "required": ["groups", "budget", "rows", "summary", "publication", "limitations"],
+            "type": "object"
+          }
+        ]
+      },
+      "SkillExperimentGroupScore": {
+        "properties": {
+          "boundary": {
+            "properties": {
+              "pendingReview": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "planned": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "taskSolved": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": ["taskSolved", "planned", "pendingReview"],
+            "type": "object"
+          },
+          "costUnknown": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "elapsedSeconds": {
+            "minimum": 0,
+            "nullable": true,
+            "type": "number"
+          },
+          "group": {
+            "enum": ["none", "raw_memory", "skill"],
+            "type": "string"
+          },
+          "infraInvalid": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "primaryRepair": {
+            "properties": {
+              "denominator": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "passed": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "planned": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": ["passed", "denominator", "planned"],
+            "type": "object"
+          },
+          "reportedCostUsd": {
+            "minimum": 0,
+            "nullable": true,
+            "type": "number"
+          },
+          "unknown": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": ["group", "primaryRepair", "boundary", "unknown", "infraInvalid", "elapsedSeconds", "reportedCostUsd", "costUnknown"],
+        "type": "object"
+      },
+      "SkillExperimentList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SkillExperimentSummary"
+            },
+            "type": "array"
+          },
+          "total": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": ["items", "total"],
+        "type": "object"
+      },
+      "SkillExperimentRow": {
+        "properties": {
+          "assessmentKind": {
+            "enum": ["repair", "boundary_repair", "manual_boundary"],
+            "type": "string"
+          },
+          "boundaryPass": {
+            "enum": [0, 1],
+            "nullable": true,
+            "type": "integer"
+          },
+          "branchSupported": {
+            "nullable": true,
+            "type": "boolean"
+          },
+          "capture": {
+            "type": "string"
+          },
+          "caseId": {
+            "type": "string"
+          },
+          "cellId": {
+            "type": "string"
+          },
+          "criticalViolation": {
+            "nullable": true,
+            "type": "boolean"
+          },
+          "elapsedSeconds": {
+            "minimum": 0,
+            "nullable": true,
+            "type": "number"
+          },
+          "failureReasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "group": {
+            "enum": ["none", "raw_memory", "skill"],
+            "type": "string"
+          },
+          "loading": {
+            "type": "string"
+          },
+          "manualReview": {
+            "enum": ["pending"],
+            "type": "string"
+          },
+          "receiptVerified": {
+            "type": "boolean"
+          },
+          "repairPass": {
+            "enum": [0, 1],
+            "nullable": true,
+            "type": "integer"
+          },
+          "reportedCostUsd": {
+            "minimum": 0,
+            "nullable": true,
+            "type": "number"
+          },
+          "status": {
+            "enum": ["queued", "running", "passed", "failed", "unknown", "infra_invalid"],
+            "type": "string"
+          },
+          "taskAccepted": {
+            "type": "boolean"
+          },
+          "toolCalls": {
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cellId",
+          "caseId",
+          "group",
+          "status",
+          "assessmentKind",
+          "repairPass",
+          "boundaryPass",
+          "branchSupported",
+          "criticalViolation",
+          "manualReview",
+          "taskAccepted",
+          "receiptVerified",
+          "loading",
+          "capture",
+          "elapsedSeconds",
+          "reportedCostUsd",
+          "toolCalls",
+          "failureReasons"
+        ],
+        "type": "object"
+      },
+      "SkillExperimentSummary": {
+        "properties": {
+          "completed": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "experimentId": {
+            "type": "string"
+          },
+          "manifestHash": {
+            "type": "string"
+          },
+          "planned": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "skillId": {
+            "type": "string"
+          },
+          "status": {
+            "enum": ["frozen", "running", "completed", "interrupted"],
+            "type": "string"
+          }
+        },
+        "required": ["experimentId", "skillId", "revision", "manifestHash", "status", "planned", "completed"],
+        "type": "object"
+      },
+      "SkillHistoricalAssessment": {
+        "additionalProperties": true,
+        "properties": {
+          "assessmentId": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "behaviorChanged": {
+            "type": "boolean"
+          },
+          "branchCandidates": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "candidateSnapshot": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "captureComplete": {
+            "type": "boolean"
+          },
+          "caseId": {
+            "type": "string"
+          },
+          "checks": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "required": ["name", "status"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "contentHash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "coveragePlanHash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "value": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              },
+              "required": ["id", "kind", "value"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "eventsSha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "exportHash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "loadVerified": {
+            "type": "boolean"
+          },
+          "originalStatus": {
+            "type": "string"
+          },
+          "reportSha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "schemaVersion": {
+            "enum": [1, 2, 3, 4, 5],
+            "type": "integer"
+          },
+          "validationId": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "verification": {
+            "additionalProperties": false,
+            "properties": {
+              "matches": {
+                "type": "boolean"
+              },
+              "posthoc": {
+                "type": "boolean"
+              },
+              "protocol": {
+                "type": "string"
+              },
+              "receiptSha256": {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              "sameFinalPatch": {
+                "type": "boolean"
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "required": ["status", "receiptSha256", "protocol", "matches", "sameFinalPatch", "posthoc"],
+            "type": "object"
+          }
+        },
+        "required": [
+          "assessmentId",
+          "validationId",
+          "contentHash",
+          "exportHash",
+          "candidateSnapshot",
+          "reportSha256",
+          "eventsSha256",
+          "coveragePlanHash",
+          "caseId",
+          "captureComplete",
+          "loadVerified",
+          "behaviorChanged",
+          "originalStatus",
+          "verification",
+          "checks",
+          "events",
+          "branchCandidates"
+        ],
+        "type": "object"
+      },
+      "SkillImpactPrepareRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "projectId": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "skillId": {
+            "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+            "type": "string"
+          }
+        },
+        "required": ["projectId", "skillId", "revision"],
+        "type": "object"
+      },
+      "SkillImpactReviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": ["restore", "retain", "supersede"],
+            "type": "string"
+          },
+          "expectedSequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "operationId": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+            "type": "string"
+          },
+          "packageHash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "packageId": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "projectId": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "replacementRevision": {
+            "nullable": true,
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "rootIds": {
+            "items": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "skillId": {
+            "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+            "type": "string"
+          },
+          "validationIds": {
+            "items": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "projectId",
+          "skillId",
+          "revision",
+          "expectedSequence",
+          "operationId",
+          "reason",
+          "packageId",
+          "packageHash",
+          "decision",
+          "rootIds",
+          "validationIds",
+          "replacementRevision"
+        ],
+        "type": "object"
+      },
+      "SkillImpactScanRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expectedSequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "operationId": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+            "type": "string"
+          },
+          "projectId": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "skillId": {
+            "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+            "type": "string"
+          }
+        },
+        "required": ["projectId", "skillId", "revision", "expectedSequence", "operationId", "reason"],
+        "type": "object"
+      },
+      "SkillImpactScanResult": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "type": "boolean"
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/SkillLifecycle"
+          },
+          "sequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": ["sequence", "changed", "lifecycle"],
+        "type": "object"
+      },
+      "SkillJobData": {
+        "properties": {
+          "caseId": {
+            "type": "string"
+          },
+          "errorCode": {
+            "nullable": true,
+            "type": "string"
+          },
+          "jobId": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "skillId": {
+            "type": "string"
+          },
+          "skillUsage": {
+            "nullable": true,
+            "type": "object"
+          },
+          "status": {
+            "type": "string"
+          },
+          "taskResult": {
+            "nullable": true,
+            "type": "object"
+          },
+          "validationId": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SkillJudgment": {
+        "additionalProperties": false,
+        "properties": {
+          "applicability": {
+            "enum": ["in_scope", "out_of_scope", "unknown"],
+            "type": "string"
+          },
+          "boundary": {
+            "enum": ["not_applicable", "needs_evidence", "unresolved", null],
+            "nullable": true,
+            "type": "string"
+          },
+          "branches": {
+            "items": {
+              "$ref": "#/components/schemas/SkillBranchClaim"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "eventRefs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "historyDecision": {
+            "enum": ["retain", "infra_explained"],
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "taskDecision": {
+            "enum": ["repair_confirmed", "healthy_confirmed", "unresolved_confirmed", "stop_confirmed", "failed", "needs_evidence"],
+            "type": "string"
+          },
+          "usageDecision": {
+            "enum": ["correct", "misused", "not_used", "unknown"],
+            "type": "string"
+          },
+          "violations": {
+            "enum": ["none", "serious", "unknown"],
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskDecision",
+          "historyDecision",
+          "usageDecision",
+          "applicability",
+          "boundary",
+          "violations",
+          "reason",
+          "eventRefs",
+          "branches"
+        ],
+        "type": "object"
+      },
+      "SkillLifecycle": {
+        "additionalProperties": false,
+        "properties": {
+          "decisions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "decidedAt": {
+                  "type": "string"
+                },
+                "decisionId": {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "evidenceIds": {
+                  "items": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "maxItems": 200,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": ["decisionId", "action", "actor", "reason", "decidedAt", "evidenceIds"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "dependencies": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "allowed": {
+                  "type": "boolean"
+                },
+                "releaseId": {
+                  "nullable": true,
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "revision": {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "skillId": {
+                  "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                }
+              },
+              "required": ["skillId", "revision", "releaseId", "state", "allowed"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "gate": {
+            "additionalProperties": false,
+            "properties": {
+              "reasons": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "status": {
+                "enum": ["PASS", "BLOCK"],
+                "type": "string"
+              }
+            },
+            "required": ["status", "reasons"],
+            "type": "object"
+          },
+          "observations": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "detectorVersion": {
+                  "type": "string"
+                },
+                "expectedDigest": {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": ["memory", "tool"],
+                  "type": "string"
+                },
+                "observationId": {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "observedAt": {
+                  "type": "string"
+                },
+                "observedDigest": {
+                  "nullable": true,
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "previousObservationId": {
+                  "nullable": true,
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": ["healthy", "changed", "unavailable", "invalid", "restored"],
+                  "type": "string"
+                },
+                "subjectId": {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "observationId",
+                "subjectId",
+                "kind",
+                "expectedDigest",
+                "observedDigest",
+                "status",
+                "previousObservationId",
+                "detectorVersion",
+                "reason",
+                "observedAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "roots": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "enum": ["memory", "tool"],
+                  "type": "string"
+                },
+                "latestObservationId": {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "originRevision": {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "originSkillId": {
+                  "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                  "type": "string"
+                },
+                "paths": {
+                  "items": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "rootId": {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "status": {
+                  "enum": ["active", "restored_pending"],
+                  "type": "string"
+                },
+                "subjectId": {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "rootId",
+                "originSkillId",
+                "originRevision",
+                "subjectId",
+                "kind",
+                "status",
+                "latestObservationId",
+                "paths",
+                "reason"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "schemaVersion": {
+            "enum": [1],
+            "type": "integer"
+          },
+          "subjects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "expectedDigest": {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": ["memory", "tool"],
+                  "type": "string"
+                },
+                "observationId": {
+                  "nullable": true,
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "observedDigest": {
+                  "nullable": true,
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "status": {
+                  "enum": ["healthy", "changed", "unavailable", "invalid", "restored"],
+                  "type": "string"
+                },
+                "subjectId": {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                }
+              },
+              "required": ["subjectId", "kind", "expectedDigest", "observedDigest", "status", "observationId"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "watermark": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          }
+        },
+        "required": ["schemaVersion", "enabled", "watermark", "subjects", "roots", "observations", "decisions", "dependencies", "gate"],
+        "type": "object"
+      },
+      "SkillLifecycleMutationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "lifecycle": {
+            "$ref": "#/components/schemas/SkillLifecycle"
+          },
+          "sequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": ["state", "sequence", "lifecycle"],
+        "type": "object"
+      },
+      "SkillLifecyclePackage": {
+        "additionalProperties": false,
+        "properties": {
+          "activeRootIds": {
+            "items": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "actor": {
+            "type": "string"
+          },
+          "contentHash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "currentChallengeIds": {
+            "items": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "dependencyReleases": {
+            "items": {
+              "$ref": "#/components/schemas/SkillDependencyRelease"
+            },
+            "type": "array"
+          },
+          "evidenceIds": {
+            "items": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "exportHash": {
+            "nullable": true,
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "kind": {
+            "enum": ["lifecycle"],
+            "type": "string"
+          },
+          "lifecycleWatermark": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "packageHash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "packageId": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "preparedAt": {
+            "type": "string"
+          },
+          "projectId": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "skillId": {
+            "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+            "type": "string"
+          },
+          "sourceWatermark": {
+            "items": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "kind",
+          "projectId",
+          "skillId",
+          "revision",
+          "sequence",
+          "contentHash",
+          "exportHash",
+          "sourceWatermark",
+          "lifecycleWatermark",
+          "activeRootIds",
+          "currentChallengeIds",
+          "evidenceIds",
+          "dependencyReleases",
+          "actor",
+          "preparedAt",
+          "packageId",
+          "packageHash"
+        ],
+        "type": "object"
+      },
+      "SkillListData": {
+        "properties": {
+          "items": {
+            "items": {
+              "properties": {
+                "purpose": {
+                  "type": "string"
+                },
+                "readiness": {
+                  "$ref": "#/components/schemas/SkillReadiness"
+                },
+                "revision": {
+                  "type": "string"
+                },
+                "ruleCount": {
+                  "type": "integer"
+                },
+                "sequence": {
+                  "type": "integer"
+                },
+                "skillId": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                },
+                "tags": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "validationCount": {
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": ["items", "total"],
+        "type": "object"
+      },
+      "SkillLoadPreview": {
+        "description": "正式加载门禁只读结果，不代表候选评测通过。",
+        "properties": {
+          "allowed": {
+            "type": "boolean"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "SkillManagement": {
+        "description": "Neo4j 管理真相；revision 不变，sequence 用于乐观并发控制。",
+        "properties": {
+          "challenges": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/SkillReadiness"
+          },
+          "releaseId": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SkillReadiness": {
+        "properties": {
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": ["status", "reasons"],
+        "type": "object"
+      },
+      "SkillReleaseAssessment": {
+        "additionalProperties": false,
+        "description": "schema 6 精确事实；健康、修复与停止分别记录。底层 failed 不因合理停止改成 passed；工具故障没有业务退出码。绑定和交叉引用由 Python 及前端严格核对。",
+        "properties": {
+          "assessmentId": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "attemptId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "batchId": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "behaviorChanged": {
+            "type": "boolean"
+          },
+          "branchCandidates": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "candidateSnapshot": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "captureComplete": {
+            "type": "boolean"
+          },
+          "caseId": {
+            "type": "string"
+          },
+          "caseRevision": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "checkMapping": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "group": {
+                  "enum": ["scoped", "dream"],
+                  "type": "string"
+                },
+                "id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "ruleCheck": {
+                  "pattern": "^[a-z_]+$",
+                  "type": "string"
+                }
+              },
+              "required": ["id", "group", "ruleCheck"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "checks": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "status": {
+                  "enum": ["passed", "failed", "error"],
+                  "type": "string"
+                }
+              },
+              "required": ["name", "status"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "collectorDigest": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "collectorVersion": {
+            "enum": ["release-review-1"],
+            "type": "string"
+          },
+          "contentHash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "coveragePlanHash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": ["tool_started", "tool_completed", "assistant_text", "rule_declaration"],
+                  "type": "string"
+                },
+                "value": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              },
+              "required": ["id", "kind", "value"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "eventsSha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "executionQualification": {
+            "additionalProperties": false,
+            "properties": {
+              "batchId": {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              "batchProtocol": {
+                "enum": ["release-batch-1"],
+                "type": "string"
+              },
+              "calibration": {
+                "additionalProperties": false,
+                "properties": {
+                  "attemptId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "budgetExceeded": {
+                    "type": "boolean"
+                  },
+                  "captureComplete": {
+                    "type": "boolean"
+                  },
+                  "cyclesUsed": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "eventsSha256": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "group": {
+                    "enum": ["none"],
+                    "type": "string"
+                  },
+                  "initialReceiptSha256": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "issues": {
+                    "items": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "loading": {
+                    "enum": ["not_requested", "verified", "unknown"],
+                    "type": "string"
+                  },
+                  "maxCycles": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "policyMatches": {
+                    "type": "boolean"
+                  },
+                  "processComplete": {
+                    "type": "boolean"
+                  },
+                  "qualified": {
+                    "type": "boolean"
+                  },
+                  "receiptSha256": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "reportSha256": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "runId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": ["passed", "failed", "incomplete"],
+                    "type": "string"
+                  },
+                  "taskAccepted": {
+                    "type": "boolean"
+                  },
+                  "unit": {
+                    "enum": ["release-none"],
+                    "type": "string"
+                  },
+                  "unverifiedEdits": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "unit",
+                  "group",
+                  "runId",
+                  "attemptId",
+                  "reportSha256",
+                  "eventsSha256",
+                  "initialReceiptSha256",
+                  "receiptSha256",
+                  "status",
+                  "taskAccepted",
+                  "captureComplete",
+                  "loading",
+                  "processComplete",
+                  "maxCycles",
+                  "cyclesUsed",
+                  "budgetExceeded",
+                  "unverifiedEdits",
+                  "policyMatches",
+                  "qualified",
+                  "issues"
+                ],
+                "type": "object"
+              },
+              "manifestSha256": {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              "planIssues": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "planQualified": {
+                "type": "boolean"
+              },
+              "policyDigest": {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              "protocol": {
+                "enum": ["release-plan-1"],
+                "type": "string"
+              },
+              "trial": {
+                "additionalProperties": false,
+                "properties": {
+                  "attemptId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "budgetExceeded": {
+                    "type": "boolean"
+                  },
+                  "captureComplete": {
+                    "type": "boolean"
+                  },
+                  "cyclesUsed": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "eventsSha256": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "group": {
+                    "enum": ["skill"],
+                    "type": "string"
+                  },
+                  "initialReceiptSha256": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "issues": {
+                    "items": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "loading": {
+                    "enum": ["not_requested", "verified", "unknown"],
+                    "type": "string"
+                  },
+                  "maxCycles": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "policyMatches": {
+                    "type": "boolean"
+                  },
+                  "processComplete": {
+                    "type": "boolean"
+                  },
+                  "qualified": {
+                    "type": "boolean"
+                  },
+                  "receiptSha256": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "reportSha256": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "runId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": ["passed", "failed", "incomplete"],
+                    "type": "string"
+                  },
+                  "taskAccepted": {
+                    "type": "boolean"
+                  },
+                  "unit": {
+                    "description": "固定 suiteId 加 -skill 后缀",
+                    "type": "string"
+                  },
+                  "unverifiedEdits": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "unit",
+                  "group",
+                  "runId",
+                  "attemptId",
+                  "reportSha256",
+                  "eventsSha256",
+                  "initialReceiptSha256",
+                  "receiptSha256",
+                  "status",
+                  "taskAccepted",
+                  "captureComplete",
+                  "loading",
+                  "processComplete",
+                  "maxCycles",
+                  "cyclesUsed",
+                  "budgetExceeded",
+                  "unverifiedEdits",
+                  "policyMatches",
+                  "qualified",
+                  "issues"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "protocol",
+              "policyDigest",
+              "batchProtocol",
+              "batchId",
+              "manifestSha256",
+              "calibration",
+              "trial",
+              "planQualified",
+              "planIssues"
+            ],
+            "type": "object"
+          },
+          "exportHash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "initialVerification": {
+            "additionalProperties": false,
+            "properties": {
+              "candidateSnapshot": {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              "checks": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": ["passed", "failed", "error"],
+                      "type": "string"
+                    }
+                  },
+                  "required": ["name", "status"],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "matches": {
+                "type": "boolean"
+              },
+              "protocol": {
+                "enum": ["release-receipt-1"],
+                "type": "string"
+              },
+              "receiptSha256": {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              "status": {
+                "enum": ["passed", "failed", "error"],
+                "type": "string"
+              }
+            },
+            "required": ["status", "receiptSha256", "protocol", "matches", "candidateSnapshot", "checks"],
+            "type": "object"
+          },
+          "intermediateVerifications": {
+            "items": {
+              "type": "object"
+            },
+            "maxItems": 0,
+            "type": "array"
+          },
+          "lineageId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "loadVerified": {
+            "type": "boolean"
+          },
+          "originalStatus": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": ["healthy_candidate", "repair_candidate", "stop_candidate", "unresolved_candidate", "incomplete", "failed"],
+            "type": "string"
+          },
+          "processVerification": {
+            "additionalProperties": false,
+            "properties": {
+              "budgetExceeded": {
+                "type": "boolean"
+              },
+              "checkpoints": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "checkIndex": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "checks": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "name": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "status": {
+                            "enum": ["passed", "failed", "error"],
+                            "type": "string"
+                          }
+                        },
+                        "required": ["name", "status"],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "completedEvent": {
+                      "minLength": 1,
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "cyclesUsed": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "editEventRefs": {
+                      "items": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "groupStatus": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "dream": {
+                          "enum": ["passed", "failed", "error"],
+                          "type": "string"
+                        },
+                        "scoped": {
+                          "enum": ["passed", "failed", "error"],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "recordSha256": {
+                      "pattern": "^[a-f0-9]{64}$",
+                      "type": "string"
+                    },
+                    "snapshot": {
+                      "pattern": "^[a-f0-9]{64}$",
+                      "type": "string"
+                    },
+                    "startedEvent": {
+                      "minLength": 1,
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "checkIndex",
+                    "snapshot",
+                    "recordSha256",
+                    "startedEvent",
+                    "completedEvent",
+                    "checks",
+                    "groupStatus",
+                    "cyclesUsed",
+                    "editEventRefs"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "complete": {
+                "type": "boolean"
+              },
+              "cyclesUsed": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "issues": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "maxCycles": {
+                "enum": [2],
+                "type": "integer"
+              },
+              "unverifiedEdits": {
+                "type": "boolean"
+              },
+              "version": {
+                "enum": ["release-process-1"],
+                "type": "string"
+              }
+            },
+            "required": ["version", "complete", "issues", "maxCycles", "cyclesUsed", "budgetExceeded", "unverifiedEdits", "checkpoints"],
+            "type": "object"
+          },
+          "publicVerification": {
+            "additionalProperties": false,
+            "properties": {
+              "deliveriesVerified": {
+                "type": "boolean"
+              },
+              "deliveryRefs": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "checkIndex": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "completedEvent": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "startedEvent": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": ["checkIndex", "startedEvent", "completedEvent"],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "fault": {
+                "additionalProperties": false,
+                "nullable": true,
+                "properties": {
+                  "checkIndex": {
+                    "enum": [2],
+                    "type": "integer"
+                  },
+                  "code": {
+                    "enum": ["registered_check_unavailable"],
+                    "type": "string"
+                  },
+                  "completedEvent": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "recordSha256": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "startedEvent": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": ["checkIndex", "code", "recordSha256", "startedEvent", "completedEvent"],
+                "type": "object"
+              },
+              "finalExitCode": {
+                "nullable": true,
+                "type": "integer"
+              },
+              "initialExitCode": {
+                "nullable": true,
+                "type": "integer"
+              },
+              "recordsVerified": {
+                "type": "boolean"
+              }
+            },
+            "required": ["initialExitCode", "finalExitCode", "recordsVerified", "deliveriesVerified", "deliveryRefs", "fault"],
+            "type": "object"
+          },
+          "purpose": {
+            "enum": ["actual", "management_test"],
+            "type": "string"
+          },
+          "reportSha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "runId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "schemaVersion": {
+            "enum": [6],
+            "type": "integer"
+          },
+          "split": {
+            "enum": ["holdout"],
+            "type": "string"
+          },
+          "suiteId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "taskDigest": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "taskOutcome": {
+            "additionalProperties": false,
+            "properties": {
+              "eligible": {
+                "type": "boolean"
+              },
+              "kind": {
+                "enum": ["healthy", "repair", "out_of_scope", "missing_evidence", "unresolved", "tool_failure"],
+                "type": "string"
+              },
+              "reasons": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": ["kind", "eligible", "reasons"],
+            "type": "object"
+          },
+          "validationId": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "verification": {
+            "additionalProperties": false,
+            "properties": {
+              "matches": {
+                "type": "boolean"
+              },
+              "posthoc": {
+                "enum": [false],
+                "type": "boolean"
+              },
+              "protocol": {
+                "enum": ["release-receipt-1"],
+                "type": "string"
+              },
+              "receiptSha256": {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              "sameFinalPatch": {
+                "type": "boolean"
+              },
+              "status": {
+                "enum": ["passed", "failed", "error"],
+                "type": "string"
+              }
+            },
+            "required": ["status", "receiptSha256", "protocol", "matches", "sameFinalPatch", "posthoc"],
+            "type": "object"
+          }
+        },
+        "required": [
+          "assessmentId",
+          "validationId",
+          "contentHash",
+          "exportHash",
+          "candidateSnapshot",
+          "reportSha256",
+          "eventsSha256",
+          "coveragePlanHash",
+          "caseId",
+          "captureComplete",
+          "loadVerified",
+          "behaviorChanged",
+          "originalStatus",
+          "verification",
+          "checks",
+          "events",
+          "branchCandidates",
+          "schemaVersion",
+          "collectorVersion",
+          "collectorDigest",
+          "runId",
+          "attemptId",
+          "caseRevision",
+          "lineageId",
+          "split",
+          "purpose",
+          "initialVerification",
+          "publicVerification",
+          "outcome",
+          "batchId",
+          "taskDigest",
+          "suiteId",
+          "checkMapping",
+          "processVerification",
+          "intermediateVerifications",
+          "taskOutcome",
+          "executionQualification"
+        ],
+        "type": "object"
+      },
+      "SkillReviewPackage": {
+        "properties": {
+          "contentHash": {
+            "type": "string"
+          },
+          "dependencyReleases": {
+            "items": {
+              "$ref": "#/components/schemas/SkillDependencyRelease"
+            },
+            "type": "array"
+          },
+          "lifecycleWatermark": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "packageHash": {
+            "type": "string"
+          },
+          "packageId": {
+            "type": "string"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/SkillReadiness"
+          },
+          "reviewChecklist": {
+            "items": {
+              "properties": {
+                "branchCount": {
+                  "type": "integer"
+                },
+                "coveredBranches": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "ruleId": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer"
+          },
+          "skillId": {
+            "type": "string"
+          },
+          "sourceWatermark": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "validationIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["packageId", "packageHash", "sequence", "skillId", "revision", "readiness"],
+        "type": "object"
+      },
       "SubscriptionDetails": {
         "properties": {
           "currentCycle": {
@@ -5041,6 +7432,1862 @@
         "summary": "订阅周期",
         "tags": ["账号"]
       }
+    },
+    "/api/v1/skills/adjudications/prepare": {
+      "post": {
+        "description": "要求项目 manage；固定 assessmentId。仅读取宿主核验的证据，不接收路径或客户端验收报告。",
+        "operationId": "skill_adjudication_prepare",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "assessmentId": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "projectId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "revision": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "skillId": {
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                    "type": "string"
+                  }
+                },
+                "required": ["projectId", "skillId", "revision", "assessmentId"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillAdjudicationPackage"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功；candidate 保留规范 snake_case 正文"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "Skill 业务校验未通过；不回显原始异常或端点"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "冻结执行证据人工裁决包",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/adjudications/submit": {
+      "post": {
+        "description": "要求项目 manage；绑定包、版本和 sequence。纠正须显式 supersedes。不会自动发布，409 不自动重试。",
+        "operationId": "skill_adjudicate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillAdjudicationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillAdjudicationResult"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功；candidate 保留规范 snake_case 正文"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "Skill 业务校验未通过；不回显原始异常或端点"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "追加人工裁决与逐分支证据判断",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/challenges": {
+      "post": {
+        "description": "必须显式 projectId，要求项目 manage 能力；身份从已认证会话获取。\n只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。\n409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。",
+        "operationId": "skill_challenge",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "expectedSequence": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "operationId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                    "type": "string"
+                  },
+                  "projectId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "reason": {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "revision": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "skillId": {
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                    "type": "string"
+                  }
+                },
+                "required": ["projectId", "skillId", "revision", "expectedSequence", "operationId", "reason"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillManagement"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功；candidate 保留规范 snake_case 正文"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "Skill 业务校验未通过；不回显原始异常或端点"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "登记反例挑战",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/challenges/resolve": {
+      "post": {
+        "description": "要求项目 manage；actor 来自会话。只接受固定版本、包和摘要引用，不接受路径、命令或客户端观察。恢复须新验证；替代须健康已发布版本，不自动重绑依赖。",
+        "operationId": "skill_challenge_resolve",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillChallengeResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillLifecycleMutationResult"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功，返回当前固定投影"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "安全错误码与可选当前序号；不自动重试"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "安全错误码与可选当前序号；不自动重试"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "追加历史挑战处置",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/detail": {
+      "post": {
+        "description": "必须显式 projectId，要求项目 view 能力；身份从已认证会话获取。\n只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。\n409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。",
+        "operationId": "skill_detail",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "projectId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "revision": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "skillId": {
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                    "type": "string"
+                  }
+                },
+                "required": ["projectId", "skillId", "revision"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillDetailData"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功；candidate 保留规范 snake_case 正文"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "Skill 业务校验未通过；不回显原始异常或端点"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "查看固定版本与管理状态",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/evaluations/start": {
+      "post": {
+        "description": "必须显式 projectId，要求项目 write 能力；身份从已认证会话获取。\n只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。\n409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。",
+        "operationId": "skill_evaluate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "caseId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "operationId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                    "type": "string"
+                  },
+                  "projectId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "revision": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "skillId": {
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                    "type": "string"
+                  }
+                },
+                "required": ["projectId", "skillId", "revision", "caseId", "operationId"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillJobData"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功；candidate 保留规范 snake_case 正文"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "Skill 业务校验未通过；不回显原始异常或端点"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "启动隔离候选评测",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/evidence": {
+      "post": {
+        "description": "必须显式 projectId，要求项目 view 能力；身份从已认证会话获取。\n只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。\n409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。",
+        "operationId": "skill_evidence",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "projectId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "revision": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "ruleId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "skillId": {
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                    "type": "string"
+                  }
+                },
+                "required": ["projectId", "skillId", "revision", "ruleId"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillEvidenceData"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功；candidate 保留规范 snake_case 正文"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "Skill 业务校验未通过；不回显原始异常或端点"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "查看规则来源证据",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/experiments/detail": {
+      "post": {
+        "description": "显式项目身份，要求 view 能力。只接受宿主登记的 experimentId，不接受路径、代码、模型配置或报告上传。",
+        "operationId": "skill_experiment_detail",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "experimentId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "projectId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  }
+                },
+                "required": ["projectId", "experimentId"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillExperimentDetail"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功；完成不等于发布批准，人工评分仍可待审"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "实验冲突或校验失败；不自动重试开始"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "实验冲突或校验失败；不自动重试开始"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "读取实验进度与分层评分",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/experiments/list": {
+      "post": {
+        "description": "显式项目身份，要求 view 能力。只接受宿主登记的 experimentId，不接受路径、代码、模型配置或报告上传。",
+        "operationId": "skill_experiments_list",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "projectId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  }
+                },
+                "required": ["projectId"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillExperimentList"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功；完成不等于发布批准，人工评分仍可待审"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "实验冲突或校验失败；不自动重试开始"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "实验冲突或校验失败；不自动重试开始"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "列出冻结三组实验",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/experiments/start": {
+      "post": {
+        "description": "显式项目身份，要求 write 能力。只接受宿主登记的 experimentId，不接受路径、代码、模型配置或报告上传。",
+        "operationId": "skill_experiment_start",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "experimentId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "operationId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                    "type": "string"
+                  },
+                  "projectId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  }
+                },
+                "required": ["projectId", "experimentId", "operationId"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillExperimentSummary"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功；完成不等于发布批准，人工评分仍可待审"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "实验冲突或校验失败；不自动重试开始"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "实验冲突或校验失败；不自动重试开始"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "异步开始已登记固定实验",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/jobs/detail": {
+      "post": {
+        "description": "必须显式 projectId，要求项目 view 能力；身份从已认证会话获取。\n只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。\n409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。",
+        "operationId": "skill_job",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "jobId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "projectId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  }
+                },
+                "required": ["projectId", "jobId"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillJobData"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功；candidate 保留规范 snake_case 正文"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "Skill 业务校验未通过；不回显原始异常或端点"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "查看异步评测结果",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/lifecycle/prepare": {
+      "post": {
+        "description": "要求项目 manage；actor 来自会话。只接受固定版本、包和摘要引用，不接受路径、命令或客户端观察。恢复须新验证；替代须健康已发布版本，不自动重绑依赖。",
+        "operationId": "skill_impact_prepare",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillImpactPrepareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillLifecyclePackage"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功，返回当前固定投影"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "安全错误码与可选当前序号；不自动重试"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "安全错误码与可选当前序号；不自动重试"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "冻结生命周期与挑战审阅包",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/lifecycle/review": {
+      "post": {
+        "description": "要求项目 manage；actor 来自会话。只接受固定版本、包和摘要引用，不接受路径、命令或客户端观察。恢复须新验证；替代须健康已发布版本，不自动重绑依赖。",
+        "operationId": "skill_impact_review",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillImpactReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillLifecycleMutationResult"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功，返回当前固定投影"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "安全错误码与可选当前序号；不自动重试"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "安全错误码与可选当前序号；不自动重试"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "提交恢复、保留或版本替代决定",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/lifecycle/scan": {
+      "post": {
+        "description": "要求项目 manage；actor 来自会话。只接受固定版本、包和摘要引用，不接受路径、命令或客户端观察。恢复须新验证；替代须健康已发布版本，不自动重绑依赖。",
+        "operationId": "skill_impact_scan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillImpactScanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillImpactScanResult"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功，返回当前固定投影"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "安全错误码与可选当前序号；不自动重试"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "安全错误码与可选当前序号；不自动重试"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "实际检查来源与工具",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/list": {
+      "post": {
+        "description": "必须显式 projectId，要求项目 view 能力；身份从已认证会话获取。\n只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。\n409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。",
+        "operationId": "skill_list",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "projectId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "query": {
+                    "maxLength": 200,
+                    "type": "string"
+                  }
+                },
+                "required": ["projectId"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillListData"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功；candidate 保留规范 snake_case 正文"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "Skill 业务校验未通过；不回显原始异常或端点"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "查看 Skill 候选列表",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/load-preview": {
+      "post": {
+        "description": "必须显式 projectId，要求项目 view 能力；身份从已认证会话获取。\n只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。\n409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。",
+        "operationId": "skill_load_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "caseId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "mode": {
+                    "enum": ["normal"],
+                    "type": "string"
+                  },
+                  "projectId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "revision": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "skillId": {
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                    "type": "string"
+                  }
+                },
+                "required": ["projectId", "skillId", "revision", "caseId", "mode"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillLoadPreview"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功；candidate 保留规范 snake_case 正文"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "Skill 业务校验未通过；不回显原始异常或端点"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "预览 Claude Code 正式加载准入",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/publish": {
+      "post": {
+        "description": "必须显式 projectId，要求项目 manage 能力；身份从已认证会话获取。\n只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。\n409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。",
+        "operationId": "skill_publish",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "expectedSequence": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "operationId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                    "type": "string"
+                  },
+                  "packageHash": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "packageId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "projectId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "reason": {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "revision": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "skillId": {
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                    "type": "string"
+                  }
+                },
+                "required": ["projectId", "skillId", "revision", "packageId", "packageHash", "expectedSequence", "operationId", "reason"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillManagement"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功；candidate 保留规范 snake_case 正文"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "Skill 业务校验未通过；不回显原始异常或端点"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "人工发布固定版本",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/reviews/decide": {
+      "post": {
+        "description": "必须显式 projectId，要求项目 manage 能力；身份从已认证会话获取。\n只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。\n409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。",
+        "operationId": "skill_review_decide",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "decision": {
+                    "enum": ["needs_evidence", "block"],
+                    "type": "string"
+                  },
+                  "expectedSequence": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "operationId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                    "type": "string"
+                  },
+                  "projectId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "reason": {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "revision": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "skillId": {
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                    "type": "string"
+                  }
+                },
+                "required": ["projectId", "skillId", "revision", "expectedSequence", "operationId", "decision", "reason"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillManagement"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功；candidate 保留规范 snake_case 正文"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "Skill 业务校验未通过；不回显原始异常或端点"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "要求补证据或阻断发布",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/reviews/prepare": {
+      "post": {
+        "description": "必须显式 projectId，要求项目 manage 能力；身份从已认证会话获取。\n只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。\n409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。",
+        "operationId": "skill_review_prepare",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "projectId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "revision": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "skillId": {
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                    "type": "string"
+                  }
+                },
+                "required": ["projectId", "skillId", "revision"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillReviewPackage"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功；candidate 保留规范 snake_case 正文"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "Skill 业务校验未通过；不回显原始异常或端点"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "准备绑定证据的人工审阅包",
+        "tags": ["Skill 管理"]
+      }
+    },
+    "/api/v1/skills/status": {
+      "post": {
+        "description": "必须显式 projectId，要求项目 manage 能力；身份从已认证会话获取。\n只接受列出的字段。服务端代理到固定 Python Skill 服务，不接受 actor、路径或任意命令。\n409 必须重新读取状态和审阅包，禁止自动重试人工批准。评测只返回 jobId，由后续轮询取结果。",
+        "operationId": "skill_status",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "enum": ["pause", "withdraw"],
+                    "type": "string"
+                  },
+                  "expectedSequence": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "operationId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                    "type": "string"
+                  },
+                  "projectId": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,299}$",
+                    "type": "string"
+                  },
+                  "reason": {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "revision": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "skillId": {
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                    "type": "string"
+                  }
+                },
+                "required": ["projectId", "skillId", "revision", "expectedSequence", "operationId", "action", "reason"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SkillManagement"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "成功；candidate 保留规范 snake_case 正文"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorNotFound"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "状态、操作 ID 或发布证据冲突；data 含 errorCode，可选 currentSequence"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillErrorEnvelope"
+                }
+              }
+            },
+            "description": "Skill 业务校验未通过；不回显原始异常或端点"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorUnavailable"
+          }
+        },
+        "summary": "暂停或撤回版本",
+        "tags": ["Skill 管理"]
+      }
     }
   },
   "servers": [
@@ -5050,6 +9297,10 @@
     }
   ],
   "tags": [
+    {
+      "description": "固定版本候选、隔离评测、人工审阅发布与加载准入。",
+      "name": "Skill 管理"
+    },
     {
       "description": "工作区。几乎所有业务接口都要它的 id。",
       "name": "项目"
